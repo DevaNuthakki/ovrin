@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+
+# OS
+.DS_Store
+
+# Local generated files
+uploads/
+*.sqlite3
+*.db
+
+# Secrets
+.env.local

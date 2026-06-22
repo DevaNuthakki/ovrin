@@ -21,3 +21,6 @@ uploads/
 
 # Secrets
 .env.local
+
+# Local API upload test files
+backend/test-upload/

@@ -42,6 +42,10 @@ class EvaluationRun(Base):
     generated_transcript = Column(Text, nullable=True)
 
     wer = Column(Float, nullable=True)
+    cer = Column(Float, nullable=True)
+    quality_label = Column(String(50), nullable=True)
+    error_summary = Column(Text, nullable=True)
+
     latency_seconds = Column(Float, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)

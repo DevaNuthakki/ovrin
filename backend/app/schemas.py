@@ -30,10 +30,16 @@ class EvaluationRunRead(BaseModel):
     run_name: str
     model_name: str
     status: str
+
     audio_file_path: Optional[str]
     reference_transcript: Optional[str]
     generated_transcript: Optional[str]
+
     wer: Optional[float]
+    cer: Optional[float]
+    quality_label: Optional[str]
+    error_summary: Optional[str]
+
     latency_seconds: Optional[float]
     created_at: datetime
 

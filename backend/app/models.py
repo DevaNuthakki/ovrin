@@ -14,6 +14,12 @@ class Project(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    datasets = relationship(
+        "Dataset",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
     runs = relationship(
         "EvaluationRun",
         back_populates="project",
@@ -25,6 +31,42 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+
+
+class Dataset(Base):
+    __tablename__ = "datasets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project", back_populates="datasets")
+
+    test_cases = relationship(
+        "TestCase",
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+    )
+
+
+class TestCase(Base):
+    __tablename__ = "test_cases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, ForeignKey("datasets.id"), nullable=False)
+
+    title = Column(String(300), nullable=False)
+    audio_file_path = Column(String(500), nullable=True)
+    reference_file_path = Column(String(500), nullable=True)
+    reference_transcript = Column(Text, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    dataset = relationship("Dataset", back_populates="test_cases")
 
 
 class EvaluationRun(Base):

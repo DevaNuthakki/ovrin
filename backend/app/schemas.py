@@ -19,6 +19,35 @@ class ProjectRead(BaseModel):
         from_attributes = True
 
 
+class DatasetCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class DatasetRead(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    description: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TestCaseRead(BaseModel):
+    id: int
+    dataset_id: int
+    title: str
+    audio_file_path: Optional[str]
+    reference_file_path: Optional[str]
+    reference_transcript: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class EvaluationRunCreate(BaseModel):
     run_name: str
     model_name: Optional[str] = "not_configured"

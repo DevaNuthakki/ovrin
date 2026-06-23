@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from jiwer import cer as calculate_cer
 from jiwer import process_words
 from sqlalchemy.orm import Session
@@ -111,6 +111,182 @@ def get_project(
         raise HTTPException(status_code=404, detail="Project not found")
 
     return db_project
+
+
+@router.post(
+    "/projects/{project_id}/datasets",
+    response_model=schemas.DatasetRead,
+)
+def create_dataset(
+    project_id: int,
+    dataset: schemas.DatasetCreate,
+    db: Session = Depends(get_db),
+):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    db_dataset = models.Dataset(
+        project_id=project_id,
+        name=dataset.name,
+        description=dataset.description,
+    )
+
+    db.add(db_dataset)
+    db.commit()
+    db.refresh(db_dataset)
+
+    return db_dataset
+
+
+@router.get(
+    "/projects/{project_id}/datasets",
+    response_model=list[schemas.DatasetRead],
+)
+def list_project_datasets(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return (
+        db.query(models.Dataset)
+        .filter(models.Dataset.project_id == project_id)
+        .order_by(models.Dataset.created_at.desc())
+        .all()
+    )
+
+
+@router.get(
+    "/datasets/{dataset_id}",
+    response_model=schemas.DatasetRead,
+)
+def get_dataset(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+):
+    db_dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
+
+    if db_dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    return db_dataset
+
+
+@router.post(
+    "/datasets/{dataset_id}/test-cases",
+    response_model=schemas.TestCaseRead,
+)
+async def create_test_case(
+    dataset_id: int,
+    title: str = Form(...),
+    audio_file: UploadFile = File(...),
+    reference_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    db_dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
+
+    if db_dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if not title.strip():
+        raise HTTPException(status_code=400, detail="Test case title is required")
+
+    if not audio_file.filename:
+        raise HTTPException(status_code=400, detail="Audio file is required")
+
+    if not reference_file.filename:
+        raise HTTPException(status_code=400, detail="Reference transcript file is required")
+
+    allowed_audio_extensions = {".wav", ".mp3", ".m4a"}
+    audio_file_name = Path(audio_file.filename).name
+    reference_file_name = Path(reference_file.filename).name
+
+    audio_extension = Path(audio_file_name).suffix.lower()
+
+    if audio_extension not in allowed_audio_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid audio file type. Allowed types: .wav, .mp3, .m4a",
+        )
+
+    validate_text_file_extension(reference_file_name, "Reference")
+
+    test_case_upload_dir = Path("uploads") / "datasets" / str(dataset_id) / "test-cases"
+    audio_dir = test_case_upload_dir / "audio"
+    reference_dir = test_case_upload_dir / "reference"
+
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    reference_dir.mkdir(parents=True, exist_ok=True)
+
+    audio_path = audio_dir / audio_file_name
+    reference_path = reference_dir / reference_file_name
+
+    audio_content = await audio_file.read()
+    reference_content = await reference_file.read()
+
+    if not audio_content:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+
+    reference_text = decode_transcript_file(reference_content, "Reference")
+
+    audio_path.write_bytes(audio_content)
+    reference_path.write_text(reference_text, encoding="utf-8")
+
+    db_test_case = models.TestCase(
+        dataset_id=dataset_id,
+        title=title.strip(),
+        audio_file_path=str(audio_path),
+        reference_file_path=str(reference_path),
+        reference_transcript=reference_text,
+    )
+
+    db.add(db_test_case)
+    db.commit()
+    db.refresh(db_test_case)
+
+    return db_test_case
+
+
+@router.get(
+    "/datasets/{dataset_id}/test-cases",
+    response_model=list[schemas.TestCaseRead],
+)
+def list_dataset_test_cases(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+):
+    db_dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
+
+    if db_dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    return (
+        db.query(models.TestCase)
+        .filter(models.TestCase.dataset_id == dataset_id)
+        .order_by(models.TestCase.created_at.desc())
+        .all()
+    )
+
+
+@router.get(
+    "/test-cases/{test_case_id}",
+    response_model=schemas.TestCaseRead,
+)
+def get_test_case(
+    test_case_id: int,
+    db: Session = Depends(get_db),
+):
+    db_test_case = db.query(models.TestCase).filter(models.TestCase.id == test_case_id).first()
+
+    if db_test_case is None:
+        raise HTTPException(status_code=404, detail="Test case not found")
+
+    return db_test_case
 
 
 @router.post(

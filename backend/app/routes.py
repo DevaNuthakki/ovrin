@@ -355,6 +355,131 @@ def get_evaluation_run(
 
 
 @router.post(
+    "/runs/{run_id}/test-cases/{test_case_id}/evaluate",
+    response_model=schemas.EvaluationResultRead,
+)
+async def evaluate_test_case_for_run(
+    run_id: int,
+    test_case_id: int,
+    generated_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    db_run = db.query(models.EvaluationRun).filter(models.EvaluationRun.id == run_id).first()
+
+    if db_run is None:
+        raise HTTPException(status_code=404, detail="Evaluation run not found")
+
+    db_test_case = db.query(models.TestCase).filter(models.TestCase.id == test_case_id).first()
+
+    if db_test_case is None:
+        raise HTTPException(status_code=404, detail="Test case not found")
+
+    db_dataset = db.query(models.Dataset).filter(models.Dataset.id == db_test_case.dataset_id).first()
+
+    if db_dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if db_dataset.project_id != db_run.project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Test case dataset does not belong to the same project as this run",
+        )
+
+    if not generated_file.filename:
+        raise HTTPException(status_code=400, detail="Generated transcript file is required")
+
+    generated_file_name = Path(generated_file.filename).name
+    validate_text_file_extension(generated_file_name, "Generated")
+
+    result_upload_dir = Path("uploads") / "runs" / str(run_id) / "results" / str(test_case_id)
+    generated_dir = result_upload_dir / "generated"
+    generated_dir.mkdir(parents=True, exist_ok=True)
+
+    generated_path = generated_dir / generated_file_name
+
+    generated_content = await generated_file.read()
+    generated_text = decode_transcript_file(generated_content, "Generated")
+
+    reference_text = db_test_case.reference_transcript
+
+    wer_score, cer_score, error_summary = build_error_summary(
+        reference_text=reference_text,
+        generated_text=generated_text,
+    )
+
+    quality_label = build_quality_label(wer_score)
+
+    generated_path.write_text(generated_text, encoding="utf-8")
+
+    db_result = models.EvaluationResult(
+        run_id=run_id,
+        test_case_id=test_case_id,
+        generated_transcript=generated_text,
+        generated_file_path=str(generated_path),
+        wer=wer_score,
+        cer=cer_score,
+        quality_label=quality_label,
+        error_summary=error_summary,
+    )
+
+    db.add(db_result)
+
+    db_run.generated_transcript = generated_text
+    db_run.reference_transcript = reference_text
+    db_run.wer = wer_score
+    db_run.cer = cer_score
+    db_run.quality_label = quality_label
+    db_run.error_summary = error_summary
+    db_run.status = "evaluated"
+
+    db.commit()
+    db.refresh(db_result)
+
+    return db_result
+
+
+@router.get(
+    "/runs/{run_id}/results",
+    response_model=list[schemas.EvaluationResultRead],
+)
+def list_run_results(
+    run_id: int,
+    db: Session = Depends(get_db),
+):
+    db_run = db.query(models.EvaluationRun).filter(models.EvaluationRun.id == run_id).first()
+
+    if db_run is None:
+        raise HTTPException(status_code=404, detail="Evaluation run not found")
+
+    return (
+        db.query(models.EvaluationResult)
+        .filter(models.EvaluationResult.run_id == run_id)
+        .order_by(models.EvaluationResult.created_at.desc())
+        .all()
+    )
+
+
+@router.get(
+    "/results/{result_id}",
+    response_model=schemas.EvaluationResultRead,
+)
+def get_evaluation_result(
+    result_id: int,
+    db: Session = Depends(get_db),
+):
+    db_result = (
+        db.query(models.EvaluationResult)
+        .filter(models.EvaluationResult.id == result_id)
+        .first()
+    )
+
+    if db_result is None:
+        raise HTTPException(status_code=404, detail="Evaluation result not found")
+
+    return db_result
+
+
+@router.post(
     "/runs/{run_id}/upload",
     response_model=schemas.EvaluationRunRead,
 )

@@ -68,6 +68,12 @@ class TestCase(Base):
 
     dataset = relationship("Dataset", back_populates="test_cases")
 
+    evaluation_results = relationship(
+        "EvaluationResult",
+        back_populates="test_case",
+        cascade="all, delete-orphan",
+    )
+
 
 class EvaluationRun(Base):
     __tablename__ = "evaluation_runs"
@@ -93,6 +99,33 @@ class EvaluationRun(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="runs")
+
+    evaluation_results = relationship(
+        "EvaluationResult",
+        back_populates="run",
+        cascade="all, delete-orphan",
+    )
+
+
+class EvaluationResult(Base):
+    __tablename__ = "evaluation_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("evaluation_runs.id"), nullable=False)
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=False)
+
+    generated_transcript = Column(Text, nullable=False)
+    generated_file_path = Column(String(500), nullable=True)
+
+    wer = Column(Float, nullable=True)
+    cer = Column(Float, nullable=True)
+    quality_label = Column(String(50), nullable=True)
+    error_summary = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    run = relationship("EvaluationRun", back_populates="evaluation_results")
+    test_case = relationship("TestCase", back_populates="evaluation_results")
 
 
 class DebugCase(Base):

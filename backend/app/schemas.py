@@ -76,6 +76,25 @@ class EvaluationRunRead(BaseModel):
         from_attributes = True
 
 
+class EvaluationResultRead(BaseModel):
+    id: int
+    run_id: int
+    test_case_id: int
+
+    generated_transcript: str
+    generated_file_path: Optional[str]
+
+    wer: Optional[float]
+    cer: Optional[float]
+    quality_label: Optional[str]
+    error_summary: Optional[str]
+
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class DebugCaseRead(BaseModel):
     id: int
     project_id: int

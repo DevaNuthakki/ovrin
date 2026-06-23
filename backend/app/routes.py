@@ -36,6 +36,57 @@ def build_error_summary(reference_text: str, generated_text: str) -> tuple[float
     return wer_score, cer_score, summary
 
 
+def build_comparison_status(wer_delta: float, cer_delta: float) -> str:
+    if wer_delta >= 0.05 or cer_delta >= 0.03:
+        return "regression"
+
+    if wer_delta <= -0.05 or cer_delta <= -0.03:
+        return "improvement"
+
+    return "no_significant_change"
+
+
+def build_comparison_summary(
+    baseline_average_wer: float,
+    current_average_wer: float,
+    wer_delta: float,
+    baseline_average_cer: float,
+    current_average_cer: float,
+    cer_delta: float,
+    comparison_status: str,
+) -> str:
+    if comparison_status == "regression":
+        opening = "Regression detected."
+    elif comparison_status == "improvement":
+        opening = "Improvement detected."
+    else:
+        opening = "No significant regression detected."
+
+    return (
+        f"{opening} "
+        f"Baseline WER={baseline_average_wer:.3f}, current WER={current_average_wer:.3f}, "
+        f"WER delta={wer_delta:.3f}. "
+        f"Baseline CER={baseline_average_cer:.3f}, current CER={current_average_cer:.3f}, "
+        f"CER delta={cer_delta:.3f}."
+    )
+
+
+def calculate_average_metric(results: list[models.EvaluationResult], metric_name: str) -> float:
+    metric_values = [
+        getattr(result, metric_name)
+        for result in results
+        if getattr(result, metric_name) is not None
+    ]
+
+    if not metric_values:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {metric_name.upper()} values found for this run",
+        )
+
+    return sum(metric_values) / len(metric_values)
+
+
 def validate_text_file_extension(file_name: str, label: str) -> None:
     extension = Path(file_name).suffix.lower()
 
@@ -477,6 +528,123 @@ def get_evaluation_result(
         raise HTTPException(status_code=404, detail="Evaluation result not found")
 
     return db_result
+
+
+@router.post(
+    "/runs/compare",
+    response_model=schemas.RunComparisonRead,
+)
+def compare_runs(
+    comparison: schemas.RunComparisonCreate,
+    db: Session = Depends(get_db),
+):
+    baseline_run = (
+        db.query(models.EvaluationRun)
+        .filter(models.EvaluationRun.id == comparison.baseline_run_id)
+        .first()
+    )
+    current_run = (
+        db.query(models.EvaluationRun)
+        .filter(models.EvaluationRun.id == comparison.current_run_id)
+        .first()
+    )
+
+    if baseline_run is None:
+        raise HTTPException(status_code=404, detail="Baseline run not found")
+
+    if current_run is None:
+        raise HTTPException(status_code=404, detail="Current run not found")
+
+    if baseline_run.project_id != current_run.project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Runs must belong to the same project",
+        )
+
+    baseline_results = (
+        db.query(models.EvaluationResult)
+        .filter(models.EvaluationResult.run_id == baseline_run.id)
+        .all()
+    )
+    current_results = (
+        db.query(models.EvaluationResult)
+        .filter(models.EvaluationResult.run_id == current_run.id)
+        .all()
+    )
+
+    if not baseline_results:
+        raise HTTPException(
+            status_code=400,
+            detail="Baseline run has no evaluation results",
+        )
+
+    if not current_results:
+        raise HTTPException(
+            status_code=400,
+            detail="Current run has no evaluation results",
+        )
+
+    baseline_average_wer = calculate_average_metric(baseline_results, "wer")
+    current_average_wer = calculate_average_metric(current_results, "wer")
+    wer_delta = current_average_wer - baseline_average_wer
+
+    baseline_average_cer = calculate_average_metric(baseline_results, "cer")
+    current_average_cer = calculate_average_metric(current_results, "cer")
+    cer_delta = current_average_cer - baseline_average_cer
+
+    comparison_status = build_comparison_status(
+        wer_delta=wer_delta,
+        cer_delta=cer_delta,
+    )
+
+    summary = build_comparison_summary(
+        baseline_average_wer=baseline_average_wer,
+        current_average_wer=current_average_wer,
+        wer_delta=wer_delta,
+        baseline_average_cer=baseline_average_cer,
+        current_average_cer=current_average_cer,
+        cer_delta=cer_delta,
+        comparison_status=comparison_status,
+    )
+
+    db_comparison = models.RunComparison(
+        baseline_run_id=baseline_run.id,
+        current_run_id=current_run.id,
+        baseline_average_wer=baseline_average_wer,
+        current_average_wer=current_average_wer,
+        wer_delta=wer_delta,
+        baseline_average_cer=baseline_average_cer,
+        current_average_cer=current_average_cer,
+        cer_delta=cer_delta,
+        comparison_status=comparison_status,
+        summary=summary,
+    )
+
+    db.add(db_comparison)
+    db.commit()
+    db.refresh(db_comparison)
+
+    return db_comparison
+
+
+@router.get(
+    "/comparisons/{comparison_id}",
+    response_model=schemas.RunComparisonRead,
+)
+def get_run_comparison(
+    comparison_id: int,
+    db: Session = Depends(get_db),
+):
+    db_comparison = (
+        db.query(models.RunComparison)
+        .filter(models.RunComparison.id == comparison_id)
+        .first()
+    )
+
+    if db_comparison is None:
+        raise HTTPException(status_code=404, detail="Run comparison not found")
+
+    return db_comparison
 
 
 @router.post(

@@ -128,6 +128,28 @@ class EvaluationResult(Base):
     test_case = relationship("TestCase", back_populates="evaluation_results")
 
 
+class RunComparison(Base):
+    __tablename__ = "run_comparisons"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    baseline_run_id = Column(Integer, ForeignKey("evaluation_runs.id"), nullable=False)
+    current_run_id = Column(Integer, ForeignKey("evaluation_runs.id"), nullable=False)
+
+    baseline_average_wer = Column(Float, nullable=True)
+    current_average_wer = Column(Float, nullable=True)
+    wer_delta = Column(Float, nullable=True)
+
+    baseline_average_cer = Column(Float, nullable=True)
+    current_average_cer = Column(Float, nullable=True)
+    cer_delta = Column(Float, nullable=True)
+
+    comparison_status = Column(String(50), nullable=False)
+    summary = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class DebugCase(Base):
     __tablename__ = "debug_cases"
 

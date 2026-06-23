@@ -95,6 +95,34 @@ class EvaluationResultRead(BaseModel):
         from_attributes = True
 
 
+class RunComparisonCreate(BaseModel):
+    baseline_run_id: int
+    current_run_id: int
+
+
+class RunComparisonRead(BaseModel):
+    id: int
+
+    baseline_run_id: int
+    current_run_id: int
+
+    baseline_average_wer: Optional[float]
+    current_average_wer: Optional[float]
+    wer_delta: Optional[float]
+
+    baseline_average_cer: Optional[float]
+    current_average_cer: Optional[float]
+    cer_delta: Optional[float]
+
+    comparison_status: str
+    summary: Optional[str]
+
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class DebugCaseRead(BaseModel):
     id: int
     project_id: int

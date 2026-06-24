@@ -123,6 +123,14 @@ class RunComparisonRead(BaseModel):
         from_attributes = True
 
 
+class DebugCaseCreate(BaseModel):
+    title: str
+    severity: Optional[str] = "medium"
+    failure_type: Optional[str] = "asr_regression"
+    summary: Optional[str] = None
+    engineer_notes: Optional[str] = None
+
+
 class DebugCaseRead(BaseModel):
     id: int
     project_id: int

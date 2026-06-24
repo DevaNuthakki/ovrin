@@ -71,6 +71,16 @@ def build_comparison_summary(
     )
 
 
+def build_debug_case_severity(comparison_status: str, wer_delta: float) -> str:
+    if comparison_status == "regression" and wer_delta >= 0.20:
+        return "high"
+
+    if comparison_status == "regression":
+        return "medium"
+
+    return "low"
+
+
 def calculate_average_metric(results: list[models.EvaluationResult], metric_name: str) -> float:
     metric_values = [
         getattr(result, metric_name)
@@ -645,6 +655,124 @@ def get_run_comparison(
         raise HTTPException(status_code=404, detail="Run comparison not found")
 
     return db_comparison
+
+
+@router.post(
+    "/comparisons/{comparison_id}/debug-case",
+    response_model=schemas.DebugCaseRead,
+)
+def create_debug_case_from_comparison(
+    comparison_id: int,
+    db: Session = Depends(get_db),
+):
+    db_comparison = (
+        db.query(models.RunComparison)
+        .filter(models.RunComparison.id == comparison_id)
+        .first()
+    )
+
+    if db_comparison is None:
+        raise HTTPException(status_code=404, detail="Run comparison not found")
+
+    baseline_run = (
+        db.query(models.EvaluationRun)
+        .filter(models.EvaluationRun.id == db_comparison.baseline_run_id)
+        .first()
+    )
+    current_run = (
+        db.query(models.EvaluationRun)
+        .filter(models.EvaluationRun.id == db_comparison.current_run_id)
+        .first()
+    )
+
+    if baseline_run is None:
+        raise HTTPException(status_code=404, detail="Baseline run not found")
+
+    if current_run is None:
+        raise HTTPException(status_code=404, detail="Current run not found")
+
+    if db_comparison.comparison_status != "regression":
+        raise HTTPException(
+            status_code=400,
+            detail="Debug case can only be created for regression comparisons",
+        )
+
+    existing_debug_case = (
+        db.query(models.DebugCase)
+        .filter(models.DebugCase.baseline_run_id == baseline_run.id)
+        .filter(models.DebugCase.current_run_id == current_run.id)
+        .first()
+    )
+
+    if existing_debug_case is not None:
+        return existing_debug_case
+
+    severity = build_debug_case_severity(
+        comparison_status=db_comparison.comparison_status,
+        wer_delta=db_comparison.wer_delta or 0.0,
+    )
+
+    title = f"Regression detected: {baseline_run.run_name} vs {current_run.run_name}"
+
+    db_debug_case = models.DebugCase(
+        project_id=baseline_run.project_id,
+        title=title,
+        status="open",
+        severity=severity,
+        failure_type="asr_regression",
+        baseline_run_id=baseline_run.id,
+        current_run_id=current_run.id,
+        summary=db_comparison.summary,
+        engineer_notes=None,
+        ai_suggestion=None,
+    )
+
+    db.add(db_debug_case)
+    db.commit()
+    db.refresh(db_debug_case)
+
+    return db_debug_case
+
+
+@router.get(
+    "/projects/{project_id}/debug-cases",
+    response_model=list[schemas.DebugCaseRead],
+)
+def list_project_debug_cases(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return (
+        db.query(models.DebugCase)
+        .filter(models.DebugCase.project_id == project_id)
+        .order_by(models.DebugCase.created_at.desc())
+        .all()
+    )
+
+
+@router.get(
+    "/debug-cases/{debug_case_id}",
+    response_model=schemas.DebugCaseRead,
+)
+def get_debug_case(
+    debug_case_id: int,
+    db: Session = Depends(get_db),
+):
+    db_debug_case = (
+        db.query(models.DebugCase)
+        .filter(models.DebugCase.id == debug_case_id)
+        .first()
+    )
+
+    if db_debug_case is None:
+        raise HTTPException(status_code=404, detail="Debug case not found")
+
+    return db_debug_case
 
 
 @router.post(

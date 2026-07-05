@@ -25,6 +25,14 @@ function formatMetric(value: number | null | undefined) {
   return `${sign}${value.toFixed(3)}`;
 }
 
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function getStatusLabel(status?: MetricCard["status"]) {
   if (status === "good") return "Good";
   if (status === "warning") return "Warning";
@@ -242,7 +250,13 @@ function App() {
                 <p className="eyebrow">Latest comparison</p>
                 <h3>Baseline vs current run</h3>
               </div>
-              <span className={`status-pill ${comparison?.comparison_status === "regression" ? "danger" : "neutral"}`}>
+              <span
+                className={`status-pill ${
+                  comparison?.comparison_status === "regression"
+                    ? "danger"
+                    : "neutral"
+                }`}
+              >
                 {getComparisonStatusLabel(comparison?.comparison_status)}
               </span>
             </div>
@@ -258,13 +272,25 @@ function App() {
               </div>
               <div>
                 <dt>WER change</dt>
-                <dd className={comparison?.wer_delta && comparison.wer_delta > 0 ? "danger-text" : ""}>
+                <dd
+                  className={
+                    comparison?.wer_delta && comparison.wer_delta > 0
+                      ? "danger-text"
+                      : ""
+                  }
+                >
                   {formatMetric(comparison?.wer_delta)}
                 </dd>
               </div>
               <div>
                 <dt>CER change</dt>
-                <dd className={comparison?.cer_delta && comparison.cer_delta > 0 ? "warning-text" : ""}>
+                <dd
+                  className={
+                    comparison?.cer_delta && comparison.cer_delta > 0
+                      ? "warning-text"
+                      : ""
+                  }
+                >
                   {formatMetric(comparison?.cer_delta)}
                 </dd>
               </div>
@@ -319,6 +345,57 @@ function App() {
               </div>
             )}
           </article>
+        </section>
+
+        <section className="panel full-width-panel" id="projects">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Projects</p>
+              <h3>Evaluation workspaces</h3>
+            </div>
+            <span className="count-badge">{projects.length}</span>
+          </div>
+
+          {projects.length === 0 ? (
+            <div className="empty-state">
+              No projects found. Create a project from the API to start
+              organizing datasets, test cases, runs, and debug cases.
+            </div>
+          ) : (
+            <div className="project-grid">
+              {projects.map((project) => (
+                <article className="project-card" key={project.id}>
+                  <div className="project-card-header">
+                    <div>
+                      <p className="eyebrow">Project #{project.id}</p>
+                      <h4>{project.name}</h4>
+                    </div>
+                    <span className="status-pill neutral">Active</span>
+                  </div>
+
+                  <p>
+                    {project.description ??
+                      "No project description provided yet."}
+                  </p>
+
+                  <dl className="project-meta">
+                    <div>
+                      <dt>Created</dt>
+                      <dd>{formatDate(project.created_at)}</dd>
+                    </div>
+                    <div>
+                      <dt>Purpose</dt>
+                      <dd>ASR regression evaluation</dd>
+                    </div>
+                  </dl>
+
+                  <button className="text-button" type="button">
+                    Open project workspace
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="panel full-width-panel" id="runs">

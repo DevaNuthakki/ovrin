@@ -184,6 +184,17 @@ a:focus-visible {
   background: rgba(30, 41, 59, 0.95);
 }
 
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  text-decoration: none;
+  font-weight: 750;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -416,6 +427,33 @@ a:focus-visible {
   position: absolute;
   right: -12px;
   color: #64748b;
+}
+
+.state-banner {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 16px;
+  background: rgba(14, 165, 233, 0.08);
+  color: #bfdbfe;
+  line-height: 1.5;
+}
+
+.state-banner.error {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fecaca;
+}
+
+.empty-state {
+  padding: 18px;
+  border: 1px dashed rgba(148, 163, 184, 0.32);
+  border-radius: 16px;
+  color: #aebdd0;
+  background: rgba(2, 6, 23, 0.24);
+  line-height: 1.55;
 }
 
 @media (max-width: 1100px) {

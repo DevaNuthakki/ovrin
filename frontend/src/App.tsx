@@ -1,4 +1,13 @@
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+import {
+  getLatestComparison,
+  getProjectDebugCases,
+  getProjects,
+  type DebugCase,
+  type Project,
+  type RunComparison,
+} from "./api";
 
 type MetricCard = {
   label: string;
@@ -7,51 +16,14 @@ type MetricCard = {
   status?: "good" | "warning" | "danger" | "neutral";
 };
 
-type DebugCase = {
-  id: number;
-  title: string;
-  severity: "high" | "medium" | "low";
-  status: "open" | "reviewing" | "closed";
-  summary: string;
-};
+function formatMetric(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "—";
+  }
 
-const metrics: MetricCard[] = [
-  {
-    label: "Projects",
-    value: "1",
-    helper: "Active ASR evaluation workspace",
-    status: "neutral",
-  },
-  {
-    label: "Open debug cases",
-    value: "1",
-    helper: "Regression needs review",
-    status: "danger",
-  },
-  {
-    label: "Latest WER delta",
-    value: "+0.500",
-    helper: "Current run is worse than baseline",
-    status: "danger",
-  },
-  {
-    label: "Latest CER delta",
-    value: "+0.421",
-    helper: "Character error rate increased",
-    status: "warning",
-  },
-];
-
-const debugCases: DebugCase[] = [
-  {
-    id: 1,
-    title: "Regression detected: Baseline run vs Current run with regression",
-    severity: "high",
-    status: "open",
-    summary:
-      "Baseline WER=0.100, current WER=0.600. The current run has a large regression and needs debugging.",
-  },
-];
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(3)}`;
+}
 
 function getStatusLabel(status?: MetricCard["status"]) {
   if (status === "good") return "Good";
@@ -60,7 +32,115 @@ function getStatusLabel(status?: MetricCard["status"]) {
   return "Neutral";
 }
 
+function getMetricStatus(value: number | null | undefined): MetricCard["status"] {
+  if (value === null || value === undefined) {
+    return "neutral";
+  }
+
+  if (value >= 0.05) {
+    return "danger";
+  }
+
+  if (value > 0) {
+    return "warning";
+  }
+
+  if (value < 0) {
+    return "good";
+  }
+
+  return "neutral";
+}
+
+function getComparisonStatusLabel(status: string | undefined) {
+  if (!status) return "No comparison";
+
+  return status.replaceAll("_", " ");
+}
+
 function App() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [comparison, setComparison] = useState<RunComparison | null>(null);
+  const [debugCases, setDebugCases] = useState<DebugCase[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadDashboardData() {
+      try {
+        setIsLoading(true);
+        setErrorMessage(null);
+
+        const projectData = await getProjects();
+        setProjects(projectData);
+
+        const latestComparison = await getLatestComparison();
+        setComparison(latestComparison);
+
+        const firstProjectId = projectData[0]?.id ?? 1;
+        const debugCaseData = await getProjectDebugCases(firstProjectId);
+        setDebugCases(debugCaseData);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to load Ovrin dashboard data.";
+
+        setErrorMessage(message);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadDashboardData();
+  }, []);
+
+  const openDebugCases = debugCases.filter(
+    (debugCase) => debugCase.status !== "closed",
+  );
+
+  const metrics: MetricCard[] = useMemo(
+    () => [
+      {
+        label: "Projects",
+        value: String(projects.length),
+        helper:
+          projects.length === 1
+            ? "Active ASR evaluation workspace"
+            : "Active ASR evaluation workspaces",
+        status: "neutral",
+      },
+      {
+        label: "Open debug cases",
+        value: String(openDebugCases.length),
+        helper:
+          openDebugCases.length > 0
+            ? "Regression needs review"
+            : "No open regression cases",
+        status: openDebugCases.length > 0 ? "danger" : "good",
+      },
+      {
+        label: "Latest WER delta",
+        value: formatMetric(comparison?.wer_delta),
+        helper:
+          comparison?.wer_delta && comparison.wer_delta > 0
+            ? "Current run is worse than baseline"
+            : "No WER regression detected",
+        status: getMetricStatus(comparison?.wer_delta),
+      },
+      {
+        label: "Latest CER delta",
+        value: formatMetric(comparison?.cer_delta),
+        helper:
+          comparison?.cer_delta && comparison.cer_delta > 0
+            ? "Character error rate increased"
+            : "No CER regression detected",
+        status: getMetricStatus(comparison?.cer_delta),
+      },
+    ],
+    [comparison, openDebugCases.length, projects.length],
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
@@ -113,14 +193,32 @@ function App() {
           </div>
 
           <div className="header-actions">
-            <button className="secondary-button" type="button">
+            <a
+              className="secondary-button button-link"
+              href="http://127.0.0.1:8000/docs"
+              target="_blank"
+              rel="noreferrer"
+            >
               View API status
-            </button>
+            </a>
             <button className="primary-button" type="button">
               New evaluation run
             </button>
           </div>
         </header>
+
+        {isLoading && (
+          <section className="state-banner" role="status" aria-live="polite">
+            Loading Ovrin dashboard data from the backend API...
+          </section>
+        )}
+
+        {errorMessage && (
+          <section className="state-banner error" role="alert">
+            <strong>Unable to load backend data.</strong>
+            <span>{errorMessage}</span>
+          </section>
+        )}
 
         <section className="metrics-grid" aria-label="Project metrics">
           {metrics.map((metric) => (
@@ -144,34 +242,39 @@ function App() {
                 <p className="eyebrow">Latest comparison</p>
                 <h3>Baseline vs current run</h3>
               </div>
-              <span className="status-pill danger">Regression</span>
+              <span className={`status-pill ${comparison?.comparison_status === "regression" ? "danger" : "neutral"}`}>
+                {getComparisonStatusLabel(comparison?.comparison_status)}
+              </span>
             </div>
 
             <dl className="comparison-list">
               <div>
-                <dt>Baseline run</dt>
-                <dd>Baseline run</dd>
+                <dt>Baseline run ID</dt>
+                <dd>{comparison?.baseline_run_id ?? "—"}</dd>
               </div>
               <div>
-                <dt>Current run</dt>
-                <dd>Current run with regression</dd>
+                <dt>Current run ID</dt>
+                <dd>{comparison?.current_run_id ?? "—"}</dd>
               </div>
               <div>
                 <dt>WER change</dt>
-                <dd className="danger-text">+0.500</dd>
+                <dd className={comparison?.wer_delta && comparison.wer_delta > 0 ? "danger-text" : ""}>
+                  {formatMetric(comparison?.wer_delta)}
+                </dd>
               </div>
               <div>
                 <dt>CER change</dt>
-                <dd className="warning-text">+0.421</dd>
+                <dd className={comparison?.cer_delta && comparison.cer_delta > 0 ? "warning-text" : ""}>
+                  {formatMetric(comparison?.cer_delta)}
+                </dd>
               </div>
             </dl>
 
             <div className="insight-box" role="note">
               <strong>Engineer summary</strong>
               <p>
-                The current run is significantly worse than the baseline. Start
-                by reviewing transcript differences and recent model or decoding
-                changes.
+                {comparison?.summary ??
+                  "No comparison summary is available yet. Create and compare evaluation runs to populate this view."}
               </p>
             </div>
           </article>
@@ -182,30 +285,39 @@ function App() {
                 <p className="eyebrow">Debug queue</p>
                 <h3>Open debug cases</h3>
               </div>
-              <span className="count-badge">{debugCases.length}</span>
+              <span className="count-badge">{openDebugCases.length}</span>
             </div>
 
-            <div className="debug-case-list">
-              {debugCases.map((debugCase) => (
-                <article className="debug-case-card" key={debugCase.id}>
-                  <div className="debug-case-topline">
-                    <span className={`severity-badge ${debugCase.severity}`}>
-                      {debugCase.severity}
-                    </span>
-                    <span className="status-pill neutral">
-                      {debugCase.status}
-                    </span>
-                  </div>
+            {openDebugCases.length === 0 ? (
+              <div className="empty-state">
+                No open debug cases. New regression cases will appear here.
+              </div>
+            ) : (
+              <div className="debug-case-list">
+                {openDebugCases.map((debugCase) => (
+                  <article className="debug-case-card" key={debugCase.id}>
+                    <div className="debug-case-topline">
+                      <span className={`severity-badge ${debugCase.severity}`}>
+                        {debugCase.severity}
+                      </span>
+                      <span className="status-pill neutral">
+                        {debugCase.status}
+                      </span>
+                    </div>
 
-                  <h4>{debugCase.title}</h4>
-                  <p>{debugCase.summary}</p>
+                    <h4>{debugCase.title}</h4>
+                    <p>
+                      {debugCase.summary ??
+                        "No summary is available for this debug case yet."}
+                    </p>
 
-                  <button className="text-button" type="button">
-                    Open debug case
-                  </button>
-                </article>
-              ))}
-            </div>
+                    <button className="text-button" type="button">
+                      Open debug case
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
           </article>
         </section>
 

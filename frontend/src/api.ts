@@ -42,6 +42,19 @@ export type EvaluationRun = {
   created_at: string;
 };
 
+export type EvaluationResult = {
+  id: number;
+  run_id: number;
+  test_case_id: number;
+  generated_transcript: string;
+  generated_file_path: string | null;
+  wer: number | null;
+  cer: number | null;
+  quality_label: string | null;
+  error_summary: string | null;
+  created_at: string;
+};
+
 export type RunComparison = {
   id: number;
   baseline_run_id: number;
@@ -141,6 +154,23 @@ export async function createProjectRun(
     },
     body: JSON.stringify(run),
   });
+}
+
+export async function evaluateTestCaseForRun(
+  runId: number,
+  testCaseId: number,
+  generatedFile: File,
+) {
+  const formData = new FormData();
+  formData.append("generated_file", generatedFile);
+
+  return fetchJson<EvaluationResult>(
+    `/runs/${runId}/test-cases/${testCaseId}/evaluate`,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
 }
 
 export async function getProjectComparisons(projectId: number) {

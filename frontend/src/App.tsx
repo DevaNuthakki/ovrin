@@ -4,6 +4,7 @@ import {
   createDatasetTestCase,
   createProjectDataset,
   createProjectRun,
+  evaluateTestCaseForRun,
   getDatasetTestCases,
   getLatestComparison,
   getProject,
@@ -131,6 +132,11 @@ function App() {
   const [modelName, setModelName] = useState("");
   const [runFormMessage, setRunFormMessage] = useState<string | null>(null);
   const [isCreatingRun, setIsCreatingRun] = useState(false);
+  const [evaluationRunId, setEvaluationRunId] = useState<number | "">("");
+  const [evaluationTestCaseId, setEvaluationTestCaseId] = useState<number | "">("");
+  const [generatedFile, setGeneratedFile] = useState<File | null>(null);
+  const [evaluationMessage, setEvaluationMessage] = useState<string | null>(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -202,6 +208,10 @@ function App() {
         });
 
         setTestCaseDatasetId((current) => current || datasets[0]?.id || "");
+        setEvaluationRunId((current) => current || runs[0]?.id || "");
+
+        const firstTestCase = testCaseEntries[0]?.[1]?.[0];
+        setEvaluationTestCaseId((current) => current || firstTestCase?.id || "");
       } catch (error) {
         const message =
           error instanceof Error
@@ -336,6 +346,10 @@ function App() {
     setRunName("");
     setModelName("");
     setRunFormMessage(null);
+    setEvaluationRunId("");
+    setEvaluationTestCaseId("");
+    setGeneratedFile(null);
+    setEvaluationMessage(null);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -444,6 +458,7 @@ function App() {
       setTestCaseTitle("");
       setAudioFile(null);
       setReferenceFile(null);
+      setEvaluationTestCaseId((current) => current || newTestCase.id);
       setTestCaseFormMessage("Test case uploaded.");
     } catch (error) {
       const message =
@@ -492,6 +507,7 @@ function App() {
 
       setRunName("");
       setModelName("");
+      setEvaluationRunId((current) => current || newRun.id);
       setRunFormMessage("Run created.");
     } catch (error) {
       const message =
@@ -500,6 +516,63 @@ function App() {
       setRunFormMessage(message);
     } finally {
       setIsCreatingRun(false);
+    }
+  }
+
+  async function handleEvaluateTestCase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!evaluationRunId || !evaluationTestCaseId || isEvaluating) {
+      return;
+    }
+
+    if (!generatedFile) {
+      setEvaluationMessage("Generated transcript file is required.");
+      return;
+    }
+
+    try {
+      setIsEvaluating(true);
+      setEvaluationMessage(null);
+
+      const result = await evaluateTestCaseForRun(
+        evaluationRunId,
+        evaluationTestCaseId,
+        generatedFile,
+      );
+
+      setWorkspaceData((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          runs: current.runs.map((run) =>
+            run.id === result.run_id
+              ? {
+                  ...run,
+                  status: "evaluated",
+                  generated_transcript: result.generated_transcript,
+                  wer: result.wer,
+                  cer: result.cer,
+                  quality_label: result.quality_label,
+                  error_summary: result.error_summary,
+                }
+              : run,
+          ),
+        };
+      });
+
+      setGeneratedFile(null);
+      setEvaluationMessage("Test case evaluated.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to evaluate test case.";
+
+      setEvaluationMessage(message);
+    } finally {
+      setIsEvaluating(false);
     }
   }
 
@@ -1032,6 +1105,75 @@ function App() {
                   {runFormMessage && <span>{runFormMessage}</span>}
                 </div>
               </form>
+
+              {workspaceData.runs.length === 0 || workspaceTestCases.length === 0 ? (
+                <div className="empty-state spaced-state">
+                  Create at least one run and one test case before evaluating.
+                </div>
+              ) : (
+                <form
+                  className="dataset-form run-form"
+                  onSubmit={handleEvaluateTestCase}
+                >
+                  <div className="form-grid run-form-grid">
+                    <label className="form-field">
+                      <span>Run</span>
+                      <select
+                        value={evaluationRunId}
+                        onChange={(event) =>
+                          setEvaluationRunId(Number(event.target.value))
+                        }
+                      >
+                        {workspaceData.runs.map((run) => (
+                          <option value={run.id} key={run.id}>
+                            {run.run_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="form-field">
+                      <span>Test case</span>
+                      <select
+                        value={evaluationTestCaseId}
+                        onChange={(event) =>
+                          setEvaluationTestCaseId(Number(event.target.value))
+                        }
+                      >
+                        {workspaceTestCases.map((testCase) => (
+                          <option value={testCase.id} key={testCase.id}>
+                            {testCase.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="form-field">
+                      <span>Generated transcript</span>
+                      <input
+                        type="file"
+                        accept=".txt"
+                        onChange={(event) =>
+                          setGeneratedFile(event.target.files?.[0] ?? null)
+                        }
+                      />
+                      <small>Upload the model transcript as a UTF-8 .txt file.</small>
+                    </label>
+                  </div>
+
+                  <div className="form-actions">
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={isEvaluating}
+                    >
+                      {isEvaluating ? "Evaluating..." : "Evaluate test case"}
+                    </button>
+
+                    {evaluationMessage && <span>{evaluationMessage}</span>}
+                  </div>
+                </form>
+              )}
 
               {workspaceData.runs.length === 0 ? (
                 <div className="empty-state">

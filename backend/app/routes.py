@@ -657,6 +657,38 @@ def get_run_comparison(
     return db_comparison
 
 
+@router.get(
+    "/projects/{project_id}/comparisons",
+    response_model=list[schemas.RunComparisonRead],
+)
+def list_project_comparisons(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_run_ids = [
+        run.id
+        for run in db.query(models.EvaluationRun)
+        .filter(models.EvaluationRun.project_id == project_id)
+        .all()
+    ]
+
+    if not project_run_ids:
+        return []
+
+    return (
+        db.query(models.RunComparison)
+        .filter(models.RunComparison.baseline_run_id.in_(project_run_ids))
+        .filter(models.RunComparison.current_run_id.in_(project_run_ids))
+        .order_by(models.RunComparison.created_at.desc())
+        .all()
+    )
+
+
 @router.post(
     "/comparisons/{comparison_id}/debug-case",
     response_model=schemas.DebugCaseRead,

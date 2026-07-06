@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import "./App.css";
 import {
+  createDatasetTestCase,
   createProjectDataset,
   getDatasetTestCases,
   getLatestComparison,
@@ -119,6 +120,12 @@ function App() {
   const [datasetDescription, setDatasetDescription] = useState("");
   const [datasetFormMessage, setDatasetFormMessage] = useState<string | null>(null);
   const [isCreatingDataset, setIsCreatingDataset] = useState(false);
+  const [testCaseDatasetId, setTestCaseDatasetId] = useState<number | "">("");
+  const [testCaseTitle, setTestCaseTitle] = useState("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [testCaseFormMessage, setTestCaseFormMessage] = useState<string | null>(null);
+  const [isCreatingTestCase, setIsCreatingTestCase] = useState(false);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -188,6 +195,8 @@ function App() {
           debugCases: projectDebugCases,
           testCasesByDataset: Object.fromEntries(testCaseEntries),
         });
+
+        setTestCaseDatasetId((current) => current || datasets[0]?.id || "");
       } catch (error) {
         const message =
           error instanceof Error
@@ -314,6 +323,11 @@ function App() {
     setDatasetName("");
     setDatasetDescription("");
     setDatasetFormMessage(null);
+    setTestCaseDatasetId("");
+    setTestCaseTitle("");
+    setAudioFile(null);
+    setReferenceFile(null);
+    setTestCaseFormMessage(null);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -357,6 +371,7 @@ function App() {
 
       setDatasetName("");
       setDatasetDescription("");
+      setTestCaseDatasetId((current) => current || newDataset.id);
       setDatasetFormMessage("Dataset created.");
     } catch (error) {
       const message =
@@ -365,6 +380,70 @@ function App() {
       setDatasetFormMessage(message);
     } finally {
       setIsCreatingDataset(false);
+    }
+  }
+
+  async function handleCreateTestCase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!testCaseDatasetId || isCreatingTestCase) {
+      return;
+    }
+
+    const title = testCaseTitle.trim();
+
+    if (!title) {
+      setTestCaseFormMessage("Test case title is required.");
+      return;
+    }
+
+    if (!audioFile) {
+      setTestCaseFormMessage("Audio file is required.");
+      return;
+    }
+
+    if (!referenceFile) {
+      setTestCaseFormMessage("Reference transcript file is required.");
+      return;
+    }
+
+    try {
+      setIsCreatingTestCase(true);
+      setTestCaseFormMessage(null);
+
+      const newTestCase = await createDatasetTestCase(testCaseDatasetId, {
+        title,
+        audioFile,
+        referenceFile,
+      });
+
+      setWorkspaceData((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const currentCases = current.testCasesByDataset[testCaseDatasetId] ?? [];
+
+        return {
+          ...current,
+          testCasesByDataset: {
+            ...current.testCasesByDataset,
+            [testCaseDatasetId]: [newTestCase, ...currentCases],
+          },
+        };
+      });
+
+      setTestCaseTitle("");
+      setAudioFile(null);
+      setReferenceFile(null);
+      setTestCaseFormMessage("Test case uploaded.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to upload test case.";
+
+      setTestCaseFormMessage(message);
+    } finally {
+      setIsCreatingTestCase(false);
     }
   }
 
@@ -759,6 +838,77 @@ function App() {
                   </div>
                   <span className="count-badge">{workspaceTestCases.length}</span>
                 </div>
+
+                {workspaceData.datasets.length === 0 ? (
+                  <div className="empty-state">
+                    Add a dataset first before uploading test cases.
+                  </div>
+                ) : (
+                  <form className="dataset-form" onSubmit={handleCreateTestCase}>
+                    <div className="form-grid">
+                      <label className="form-field">
+                        <span>Dataset</span>
+                        <select
+                          value={testCaseDatasetId}
+                          onChange={(event) =>
+                            setTestCaseDatasetId(Number(event.target.value))
+                          }
+                        >
+                          {workspaceData.datasets.map((dataset) => (
+                            <option value={dataset.id} key={dataset.id}>
+                              {dataset.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="form-field">
+                        <span>Test case title</span>
+                        <input
+                          value={testCaseTitle}
+                          onChange={(event) => setTestCaseTitle(event.target.value)}
+                          placeholder="Example: Noisy speaker intro"
+                        />
+                      </label>
+
+                      <label className="form-field">
+                        <span>Audio file</span>
+                        <input
+                          type="file"
+                          accept=".wav,.mp3,.m4a"
+                          onChange={(event) =>
+                            setAudioFile(event.target.files?.[0] ?? null)
+                          }
+                        />
+                        <small>Allowed: .wav, .mp3, .m4a</small>
+                      </label>
+
+                      <label className="form-field">
+                        <span>Reference transcript</span>
+                        <input
+                          type="file"
+                          accept=".txt"
+                          onChange={(event) =>
+                            setReferenceFile(event.target.files?.[0] ?? null)
+                          }
+                        />
+                        <small>Upload a UTF-8 .txt transcript file.</small>
+                      </label>
+                    </div>
+
+                    <div className="form-actions">
+                      <button
+                        className="primary-button"
+                        type="submit"
+                        disabled={isCreatingTestCase}
+                      >
+                        {isCreatingTestCase ? "Uploading..." : "Upload test case"}
+                      </button>
+
+                      {testCaseFormMessage && <span>{testCaseFormMessage}</span>}
+                    </div>
+                  </form>
+                )}
 
                 {workspaceTestCases.length === 0 ? (
                   <div className="empty-state">

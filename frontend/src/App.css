@@ -758,3 +758,30 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
+
+.form-field select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.58);
+  color: #f8fafc;
+  font: inherit;
+}
+
+.form-field input[type="file"] {
+  min-height: auto;
+  padding: 10px 12px;
+}
+
+.form-field small {
+  color: #93a4b8;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.form-field select:focus {
+  border-color: rgba(56, 189, 248, 0.65);
+  outline: 3px solid rgba(56, 189, 248, 0.16);
+}

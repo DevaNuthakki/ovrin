@@ -111,6 +111,21 @@ export async function getDatasetTestCases(datasetId: number) {
   return fetchJson<TestCase[]>(`/datasets/${datasetId}/test-cases`);
 }
 
+export async function createDatasetTestCase(
+  datasetId: number,
+  testCase: { title: string; audioFile: File; referenceFile: File },
+) {
+  const formData = new FormData();
+  formData.append("title", testCase.title);
+  formData.append("audio_file", testCase.audioFile);
+  formData.append("reference_file", testCase.referenceFile);
+
+  return fetchJson<TestCase>(`/datasets/${datasetId}/test-cases`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
 export async function getProjectRuns(projectId: number) {
   return fetchJson<EvaluationRun[]>(`/projects/${projectId}/runs`);
 }

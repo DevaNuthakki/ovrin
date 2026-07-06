@@ -785,3 +785,17 @@ button:disabled {
   border-color: rgba(56, 189, 248, 0.65);
   outline: 3px solid rgba(56, 189, 248, 0.16);
 }
+
+.run-form {
+  margin-bottom: 18px;
+}
+
+.run-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .run-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

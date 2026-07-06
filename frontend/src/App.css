@@ -803,3 +803,7 @@ button:disabled {
 .spaced-state {
   margin-bottom: 18px;
 }
+
+.comparison-actions {
+  margin-top: 14px;
+}

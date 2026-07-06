@@ -190,6 +190,12 @@ export async function compareRuns(runIds: {
   });
 }
 
+export async function createDebugCaseFromComparison(comparisonId: number) {
+  return fetchJson<DebugCase>(`/comparisons/${comparisonId}/debug-case`, {
+    method: "POST",
+  });
+}
+
 export async function getLatestComparison() {
   return fetchJson<RunComparison>("/comparisons/1");
 }

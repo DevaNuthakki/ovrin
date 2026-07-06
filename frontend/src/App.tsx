@@ -8,6 +8,7 @@ import {
   createProjectRun,
   evaluateTestCaseForRun,
   getDatasetTestCases,
+  getDebugCaseDetails,
   getLatestComparison,
   getProject,
   getProjectComparisons,
@@ -17,6 +18,8 @@ import {
   getProjects,
   type Dataset,
   type DebugCase,
+  type DebugCaseDetail,
+  type EvaluationResult,
   type EvaluationRun,
   type Project,
   type RunComparison,
@@ -278,6 +281,10 @@ function App() {
   const [selectedDebugCaseId, setSelectedDebugCaseId] = useState<number | null>(
     null,
   );
+  const [selectedDebugCaseDetails, setSelectedDebugCaseDetails] =
+    useState<DebugCaseDetail | null>(null);
+  const [isDebugDetailsLoading, setIsDebugDetailsLoading] = useState(false);
+  const [debugDetailsError, setDebugDetailsError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -373,6 +380,36 @@ function App() {
       loadWorkspace(selectedProjectId);
     }
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    async function loadDebugCaseDetails(debugCaseId: number) {
+      try {
+        setIsDebugDetailsLoading(true);
+        setDebugDetailsError(null);
+
+        const details = await getDebugCaseDetails(debugCaseId);
+        setSelectedDebugCaseDetails(details);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to load debug case details.";
+
+        setDebugDetailsError(message);
+        setSelectedDebugCaseDetails(null);
+      } finally {
+        setIsDebugDetailsLoading(false);
+      }
+    }
+
+    if (selectedDebugCaseId) {
+      loadDebugCaseDetails(selectedDebugCaseId);
+    } else {
+      setSelectedDebugCaseDetails(null);
+      setDebugDetailsError(null);
+      setIsDebugDetailsLoading(false);
+    }
+  }, [selectedDebugCaseId]);
 
   const openDebugCases = debugCases.filter(
     (debugCase) => debugCase.status !== "closed",
@@ -500,6 +537,8 @@ function App() {
     setComparisonMessage(null);
     setDebugCaseMessage(null);
     setSelectedDebugCaseId(null);
+    setSelectedDebugCaseDetails(null);
+    setDebugDetailsError(null);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -1075,58 +1114,102 @@ function App() {
     const openCases = allCases.filter(
       (debugCase) => debugCase.status !== "closed",
     );
-    const selectedCase =
+    const workspaceSelectedCase =
       allCases.find((debugCase) => debugCase.id === selectedDebugCaseId) ??
       openCases[0] ??
       allCases[0];
 
-    const baselineRun = workspaceData?.runs.find(
-      (run) => run.id === selectedCase?.baseline_run_id,
-    );
-    const currentRun = workspaceData?.runs.find(
-      (run) => run.id === selectedCase?.current_run_id,
-    );
-    const diffTokens = getTranscriptDiff(
-      currentRun?.reference_transcript,
-      currentRun?.generated_transcript,
-    );
+    const selectedCase =
+      selectedDebugCaseDetails?.debug_case ?? workspaceSelectedCase;
+
+    const baselineRun =
+      selectedDebugCaseDetails?.baseline_run ??
+      workspaceData?.runs.find((run) => run.id === selectedCase?.baseline_run_id);
+
+    const currentRun =
+      selectedDebugCaseDetails?.current_run ??
+      workspaceData?.runs.find((run) => run.id === selectedCase?.current_run_id);
+
+    const testCase = selectedDebugCaseDetails?.test_case ?? null;
+    const baselineResult = selectedDebugCaseDetails?.baseline_result ?? null;
+    const currentResult = selectedDebugCaseDetails?.current_result ?? null;
+
+    const referenceTranscript =
+      testCase?.reference_transcript ??
+      currentRun?.reference_transcript ??
+      baselineRun?.reference_transcript;
+
+    const generatedTranscript =
+      currentResult?.generated_transcript ?? currentRun?.generated_transcript;
+
+    const currentWer = currentResult?.wer ?? currentRun?.wer;
+    const currentCer = currentResult?.cer ?? currentRun?.cer;
+    const currentQuality = currentResult?.quality_label ?? currentRun?.quality_label;
+    const currentErrorSummary =
+      currentResult?.error_summary ?? currentRun?.error_summary;
+
+    const labelSourceRun: EvaluationRun | null = currentRun
+      ? {
+          ...currentRun,
+          reference_transcript:
+            referenceTranscript ?? currentRun.reference_transcript,
+          generated_transcript:
+            generatedTranscript ?? currentRun.generated_transcript,
+          wer: currentWer ?? currentRun.wer,
+          cer: currentCer ?? currentRun.cer,
+          quality_label: currentQuality ?? null,
+          error_summary: currentErrorSummary ?? null,
+        }
+      : null;
+
+    const diffTokens = getTranscriptDiff(referenceTranscript, generatedTranscript);
     const debugLabels = selectedCase
-      ? getDebugLabels(selectedCase, currentRun)
+      ? getDebugLabels(selectedCase, labelSourceRun)
       : [];
 
     function renderRunInspectionCard(
       label: "Baseline run" | "Current run",
-      run: EvaluationRun | undefined,
+      run: EvaluationRun | null | undefined,
+      result: EvaluationResult | null | undefined,
     ) {
+      const wer = result?.wer ?? run?.wer;
+      const cer = result?.cer ?? run?.cer;
+      const qualityLabel = result?.quality_label ?? run?.quality_label ?? null;
+      const createdAt = result?.created_at ?? run?.created_at;
+
       return (
         <article className="debug-run-card">
           <p className="eyebrow">{label}</p>
 
-          {run ? (
+          {run || result ? (
             <>
               <div className="debug-run-card-title">
-                <h4>{run.run_name}</h4>
-                <span className="status-pill neutral">{run.status}</span>
+                <h4>{run?.run_name ?? `${label} result`}</h4>
+                <span className="status-pill neutral">
+                  {run?.status ?? "result"}
+                </span>
               </div>
 
-              <p>{run.model_name}</p>
+              <p>
+                {run?.model_name ?? "Run metadata is not available for this result."}
+              </p>
 
               <dl className="debug-meta-grid">
                 <div>
                   <dt>WER</dt>
-                  <dd>{formatScore(run.wer)}</dd>
+                  <dd>{formatScore(wer)}</dd>
                 </div>
                 <div>
                   <dt>CER</dt>
-                  <dd>{formatScore(run.cer)}</dd>
+                  <dd>{formatScore(cer)}</dd>
                 </div>
                 <div>
                   <dt>Quality</dt>
-                  <dd>{cleanLabel(run.quality_label)}</dd>
+                  <dd>{cleanLabel(qualityLabel)}</dd>
                 </div>
                 <div>
                   <dt>Created</dt>
-                  <dd>{formatDate(run.created_at)}</dd>
+                  <dd>{createdAt ? formatDate(createdAt) : "—"}</dd>
                 </div>
               </dl>
             </>
@@ -1146,8 +1229,8 @@ function App() {
             <p className="eyebrow">Debug workspace</p>
             <h2>{selectedCase?.title ?? "No debug case selected"}</h2>
             <p className="page-description">
-              Inspect the failing case, compare linked runs, review transcript
-              differences, and decide the next engineering action.
+              Inspect the exact failing test case, compare linked results,
+              review transcript differences, and decide the next engineering action.
             </p>
           </div>
 
@@ -1171,14 +1254,27 @@ function App() {
 
         {isWorkspaceLoading && (
           <section className="state-banner" role="status" aria-live="polite">
-            Loading debug workspace from the backend API...
+            Loading project workspace from the backend API...
+          </section>
+        )}
+
+        {isDebugDetailsLoading && (
+          <section className="state-banner" role="status" aria-live="polite">
+            Loading result-level debug details...
           </section>
         )}
 
         {workspaceError && (
           <section className="state-banner error" role="alert">
-            <strong>Unable to load debug workspace.</strong>
+            <strong>Unable to load project workspace.</strong>
             <span>{workspaceError}</span>
+          </section>
+        )}
+
+        {debugDetailsError && (
+          <section className="state-banner error" role="alert">
+            <strong>Unable to load debug details.</strong>
+            <span>{debugDetailsError}</span>
           </section>
         )}
 
@@ -1217,12 +1313,12 @@ function App() {
               <article className="metric-card">
                 <div className="metric-card-header">
                   <p>Current WER</p>
-                  <span className={`status-pill ${getQualityStatus(currentRun?.quality_label ?? null)}`}>
-                    {cleanLabel(currentRun?.quality_label)}
+                  <span className={`status-pill ${getQualityStatus(currentQuality ?? null)}`}>
+                    {cleanLabel(currentQuality)}
                   </span>
                 </div>
-                <strong>{formatScore(currentRun?.wer)}</strong>
-                <span>Word error rate for linked current run</span>
+                <strong>{formatScore(currentWer)}</strong>
+                <span>Word error rate for linked current result</span>
               </article>
 
               <article className="metric-card">
@@ -1294,31 +1390,44 @@ function App() {
                   </p>
                 </div>
 
+                <div className="insight-box debug-detail-spacer">
+                  <strong>Failing test case</strong>
+                  <p>
+                    {testCase
+                      ? `${testCase.title} — reference sample #${testCase.id}`
+                      : "No result-level test case is linked yet."}
+                  </p>
+                </div>
+
                 <div className="debug-run-grid">
-                  {renderRunInspectionCard("Baseline run", baselineRun)}
-                  {renderRunInspectionCard("Current run", currentRun)}
+                  {renderRunInspectionCard(
+                    "Baseline run",
+                    baselineRun,
+                    baselineResult,
+                  )}
+                  {renderRunInspectionCard("Current run", currentRun, currentResult)}
                 </div>
 
                 <section className="transcript-grid" aria-label="Transcript comparison">
                   <article className="transcript-panel">
                     <div className="transcript-panel-header">
                       <h4>Reference transcript</h4>
-                      <span>Expected</span>
+                      <span>Expected test case transcript</span>
                     </div>
                     <p>
-                      {currentRun?.reference_transcript ??
-                        "No reference transcript is available for this linked run."}
+                      {referenceTranscript ??
+                        "No reference transcript is available for this debug case."}
                     </p>
                   </article>
 
                   <article className="transcript-panel">
                     <div className="transcript-panel-header">
                       <h4>Generated transcript</h4>
-                      <span>Model output</span>
+                      <span>Current result output</span>
                     </div>
                     <p>
-                      {currentRun?.generated_transcript ??
-                        "No generated transcript is available for this linked run."}
+                      {generatedTranscript ??
+                        "No generated transcript is available for this debug case."}
                     </p>
                   </article>
                 </section>
@@ -1348,7 +1457,7 @@ function App() {
                   <div className="insight-box">
                     <strong>Error summary</strong>
                     <p>
-                      {currentRun?.error_summary ??
+                      {currentErrorSummary ??
                         selectedCase.engineer_notes ??
                         "No error summary is available yet."}
                     </p>
@@ -1920,9 +2029,13 @@ function App() {
                             "No summary is available for this debug case yet."}
                         </p>
 
-                        <button className="text-button" type="button">
-                          Open debug case
-                        </button>
+                        <button
+                            className="text-button"
+                            type="button"
+                            onClick={() => setSelectedDebugCaseId(debugCase.id)}
+                          >
+                            Open debug case
+                          </button>
                       </article>
                     ))}
                   </div>

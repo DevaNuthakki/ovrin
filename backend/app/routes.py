@@ -97,6 +97,85 @@ def calculate_average_metric(results: list[models.EvaluationResult], metric_name
     return sum(metric_values) / len(metric_values)
 
 
+def get_optional_by_id(db: Session, model, object_id: int | None):
+    if object_id is None:
+        return None
+
+    return db.query(model).filter(model.id == object_id).first()
+
+
+def find_worst_debug_result_pair(
+    db: Session,
+    baseline_run_id: int,
+    current_run_id: int,
+) -> tuple[
+    models.EvaluationResult | None,
+    models.EvaluationResult | None,
+    models.TestCase | None,
+]:
+    baseline_results = (
+        db.query(models.EvaluationResult)
+        .filter(models.EvaluationResult.run_id == baseline_run_id)
+        .all()
+    )
+    current_results = (
+        db.query(models.EvaluationResult)
+        .filter(models.EvaluationResult.run_id == current_run_id)
+        .all()
+    )
+
+    if not current_results:
+        return None, None, None
+
+    baseline_by_test_case_id = {
+        result.test_case_id: result for result in baseline_results
+    }
+
+    def result_priority(current_result: models.EvaluationResult) -> tuple[float, float, float]:
+        baseline_result = baseline_by_test_case_id.get(current_result.test_case_id)
+
+        current_wer = current_result.wer if current_result.wer is not None else -1.0
+        current_cer = current_result.cer if current_result.cer is not None else -1.0
+
+        if baseline_result and baseline_result.wer is not None and current_result.wer is not None:
+            wer_delta = current_result.wer - baseline_result.wer
+        else:
+            wer_delta = current_wer
+
+        return wer_delta, current_wer, current_cer
+
+    current_result = max(current_results, key=result_priority)
+    baseline_result = baseline_by_test_case_id.get(current_result.test_case_id)
+    test_case = (
+        db.query(models.TestCase)
+        .filter(models.TestCase.id == current_result.test_case_id)
+        .first()
+    )
+
+    return baseline_result, current_result, test_case
+
+
+def build_debug_case_ai_suggestion(
+    test_case: models.TestCase | None,
+    current_result: models.EvaluationResult | None,
+) -> str:
+    if current_result is None:
+        return (
+            "Review the linked regression comparison and identify the failing sample "
+            "before debugging model or transcript quality."
+        )
+
+    test_case_label = test_case.title if test_case is not None else "the selected test case"
+    wer_text = f"{current_result.wer:.3f}" if current_result.wer is not None else "unknown"
+    cer_text = f"{current_result.cer:.3f}" if current_result.cer is not None else "unknown"
+
+    return (
+        f"Start with {test_case_label}. Current result WER={wer_text}, CER={cer_text}. "
+        "Review the transcript difference, confirm whether the reference transcript is correct, "
+        "then check whether the model output changed because of audio quality, decoding, or model behavior."
+    )
+
+
 def validate_text_file_extension(file_name: str, label: str) -> None:
     extension = Path(file_name).suffix.lower()
 
@@ -729,6 +808,12 @@ def create_debug_case_from_comparison(
             detail="Debug case can only be created for regression comparisons",
         )
 
+    baseline_result, current_result, db_test_case = find_worst_debug_result_pair(
+        db=db,
+        baseline_run_id=baseline_run.id,
+        current_run_id=current_run.id,
+    )
+
     existing_debug_case = (
         db.query(models.DebugCase)
         .filter(models.DebugCase.baseline_run_id == baseline_run.id)
@@ -737,6 +822,31 @@ def create_debug_case_from_comparison(
     )
 
     if existing_debug_case is not None:
+        updated_existing_case = False
+
+        if existing_debug_case.test_case_id is None and db_test_case is not None:
+            existing_debug_case.test_case_id = db_test_case.id
+            updated_existing_case = True
+
+        if existing_debug_case.baseline_result_id is None and baseline_result is not None:
+            existing_debug_case.baseline_result_id = baseline_result.id
+            updated_existing_case = True
+
+        if existing_debug_case.current_result_id is None and current_result is not None:
+            existing_debug_case.current_result_id = current_result.id
+            updated_existing_case = True
+
+        if existing_debug_case.ai_suggestion is None:
+            existing_debug_case.ai_suggestion = build_debug_case_ai_suggestion(
+                test_case=db_test_case,
+                current_result=current_result,
+            )
+            updated_existing_case = True
+
+        if updated_existing_case:
+            db.commit()
+            db.refresh(existing_debug_case)
+
         return existing_debug_case
 
     severity = build_debug_case_severity(
@@ -744,7 +854,10 @@ def create_debug_case_from_comparison(
         wer_delta=db_comparison.wer_delta or 0.0,
     )
 
-    title = f"Regression detected: {baseline_run.run_name} vs {current_run.run_name}"
+    if db_test_case is not None:
+        title = f"Regression detected in {db_test_case.title}"
+    else:
+        title = f"Regression detected: {baseline_run.run_name} vs {current_run.run_name}"
 
     db_debug_case = models.DebugCase(
         project_id=baseline_run.project_id,
@@ -754,9 +867,15 @@ def create_debug_case_from_comparison(
         failure_type="asr_regression",
         baseline_run_id=baseline_run.id,
         current_run_id=current_run.id,
+        test_case_id=db_test_case.id if db_test_case is not None else None,
+        baseline_result_id=baseline_result.id if baseline_result is not None else None,
+        current_result_id=current_result.id if current_result is not None else None,
         summary=db_comparison.summary,
         engineer_notes=None,
-        ai_suggestion=None,
+        ai_suggestion=build_debug_case_ai_suggestion(
+            test_case=db_test_case,
+            current_result=current_result,
+        ),
     )
 
     db.add(db_debug_case)
@@ -805,6 +924,78 @@ def get_debug_case(
         raise HTTPException(status_code=404, detail="Debug case not found")
 
     return db_debug_case
+
+
+@router.get(
+    "/debug-cases/{debug_case_id}/details",
+    response_model=schemas.DebugCaseDetailRead,
+)
+def get_debug_case_details(
+    debug_case_id: int,
+    db: Session = Depends(get_db),
+):
+    db_debug_case = (
+        db.query(models.DebugCase)
+        .filter(models.DebugCase.id == debug_case_id)
+        .first()
+    )
+
+    if db_debug_case is None:
+        raise HTTPException(status_code=404, detail="Debug case not found")
+
+    baseline_run = get_optional_by_id(
+        db=db,
+        model=models.EvaluationRun,
+        object_id=db_debug_case.baseline_run_id,
+    )
+    current_run = get_optional_by_id(
+        db=db,
+        model=models.EvaluationRun,
+        object_id=db_debug_case.current_run_id,
+    )
+
+    baseline_result = get_optional_by_id(
+        db=db,
+        model=models.EvaluationResult,
+        object_id=db_debug_case.baseline_result_id,
+    )
+    current_result = get_optional_by_id(
+        db=db,
+        model=models.EvaluationResult,
+        object_id=db_debug_case.current_result_id,
+    )
+
+    test_case = get_optional_by_id(
+        db=db,
+        model=models.TestCase,
+        object_id=db_debug_case.test_case_id,
+    )
+
+    if (
+        (baseline_result is None or current_result is None or test_case is None)
+        and db_debug_case.baseline_run_id is not None
+        and db_debug_case.current_run_id is not None
+    ):
+        fallback_baseline_result, fallback_current_result, fallback_test_case = (
+            find_worst_debug_result_pair(
+                db=db,
+                baseline_run_id=db_debug_case.baseline_run_id,
+                current_run_id=db_debug_case.current_run_id,
+            )
+        )
+
+        baseline_result = baseline_result or fallback_baseline_result
+        current_result = current_result or fallback_current_result
+        test_case = test_case or fallback_test_case
+
+    return {
+        "debug_case": db_debug_case,
+        "test_case": test_case,
+        "baseline_run": baseline_run,
+        "current_run": current_run,
+        "baseline_result": baseline_result,
+        "current_result": current_result,
+    }
 
 
 @router.post(

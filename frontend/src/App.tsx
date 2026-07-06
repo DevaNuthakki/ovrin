@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import "./App.css";
 import {
+  compareRuns,
   createDatasetTestCase,
   createProjectDataset,
   createProjectRun,
@@ -137,6 +138,10 @@ function App() {
   const [generatedFile, setGeneratedFile] = useState<File | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState<string | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [baselineRunId, setBaselineRunId] = useState<number | "">("");
+  const [currentRunId, setCurrentRunId] = useState<number | "">("");
+  const [comparisonMessage, setComparisonMessage] = useState<string | null>(null);
+  const [isComparingRuns, setIsComparingRuns] = useState(false);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -209,6 +214,10 @@ function App() {
 
         setTestCaseDatasetId((current) => current || datasets[0]?.id || "");
         setEvaluationRunId((current) => current || runs[0]?.id || "");
+
+        const evaluatedRuns = runs.filter((run) => run.status === "evaluated");
+        setBaselineRunId((current) => current || evaluatedRuns[1]?.id || "");
+        setCurrentRunId((current) => current || evaluatedRuns[0]?.id || "");
 
         const firstTestCase = testCaseEntries[0]?.[1]?.[0];
         setEvaluationTestCaseId((current) => current || firstTestCase?.id || "");
@@ -350,6 +359,9 @@ function App() {
     setEvaluationTestCaseId("");
     setGeneratedFile(null);
     setEvaluationMessage(null);
+    setBaselineRunId("");
+    setCurrentRunId("");
+    setComparisonMessage(null);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -565,6 +577,8 @@ function App() {
       });
 
       setGeneratedFile(null);
+      setBaselineRunId((current) => current || result.run_id);
+      setCurrentRunId((current) => current || result.run_id);
       setEvaluationMessage("Test case evaluated.");
     } catch (error) {
       const message =
@@ -573,6 +587,49 @@ function App() {
       setEvaluationMessage(message);
     } finally {
       setIsEvaluating(false);
+    }
+  }
+
+  async function handleCompareRuns(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!baselineRunId || !currentRunId || isComparingRuns) {
+      return;
+    }
+
+    if (baselineRunId === currentRunId) {
+      setComparisonMessage("Choose two different runs to compare.");
+      return;
+    }
+
+    try {
+      setIsComparingRuns(true);
+      setComparisonMessage(null);
+
+      const comparison = await compareRuns({
+        baseline_run_id: baselineRunId,
+        current_run_id: currentRunId,
+      });
+
+      setWorkspaceData((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          comparisons: [comparison, ...current.comparisons],
+        };
+      });
+
+      setComparisonMessage("Runs compared.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to compare runs.";
+
+      setComparisonMessage(message);
+    } finally {
+      setIsComparingRuns(false);
     }
   }
 
@@ -1219,6 +1276,67 @@ function App() {
                     {workspaceData.comparisons.length}
                   </span>
                 </div>
+
+                {workspaceData.runs.filter((run) => run.status === "evaluated").length < 2 ? (
+                  <div className="empty-state spaced-state">
+                    Evaluate at least two runs before creating a comparison.
+                  </div>
+                ) : (
+                  <form
+                    className="dataset-form run-form"
+                    onSubmit={handleCompareRuns}
+                  >
+                    <div className="form-grid run-form-grid">
+                      <label className="form-field">
+                        <span>Baseline run</span>
+                        <select
+                          value={baselineRunId}
+                          onChange={(event) =>
+                            setBaselineRunId(Number(event.target.value))
+                          }
+                        >
+                          {workspaceData.runs
+                            .filter((run) => run.status === "evaluated")
+                            .map((run) => (
+                              <option value={run.id} key={run.id}>
+                                {run.run_name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+
+                      <label className="form-field">
+                        <span>Current run</span>
+                        <select
+                          value={currentRunId}
+                          onChange={(event) =>
+                            setCurrentRunId(Number(event.target.value))
+                          }
+                        >
+                          {workspaceData.runs
+                            .filter((run) => run.status === "evaluated")
+                            .map((run) => (
+                              <option value={run.id} key={run.id}>
+                                {run.run_name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="form-actions">
+                      <button
+                        className="primary-button"
+                        type="submit"
+                        disabled={isComparingRuns}
+                      >
+                        {isComparingRuns ? "Comparing..." : "Compare runs"}
+                      </button>
+
+                      {comparisonMessage && <span>{comparisonMessage}</span>}
+                    </div>
+                  </form>
+                )}
 
                 {latestComparison ? (
                   <>

@@ -1017,3 +1017,58 @@ button:disabled {
 .debug-detail-spacer {
   margin-top: 18px;
 }
+
+
+.diff-summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.diff-summary-row div {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.diff-summary-row dt {
+  margin-bottom: 4px;
+  color: #93a4b8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.diff-summary-row dd {
+  margin: 0;
+  color: #f8fafc;
+  font-weight: 800;
+}
+
+.diff-token.match {
+  color: #cbd5e1;
+}
+
+.diff-token.insertion {
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.14);
+}
+
+.diff-token.deletion {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.16);
+  text-decoration: line-through;
+}
+
+.diff-token.substitution {
+  color: #fbcfe8;
+  background: rgba(236, 72, 153, 0.16);
+}
+
+@media (max-width: 720px) {
+  .diff-summary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

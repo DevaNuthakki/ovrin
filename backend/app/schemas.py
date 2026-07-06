@@ -159,3 +159,24 @@ class DebugCaseDetailRead(BaseModel):
     current_run: Optional[EvaluationRunRead]
     baseline_result: Optional[EvaluationResultRead]
     current_result: Optional[EvaluationResultRead]
+
+
+class TranscriptDiffTokenRead(BaseModel):
+    operation: str
+    reference_word: Optional[str]
+    generated_word: Optional[str]
+    display_text: str
+
+
+class TranscriptDiffRead(BaseModel):
+    result_id: int
+    test_case_id: int
+    reference_transcript: str
+    generated_transcript: str
+    wer: Optional[float]
+    cer: Optional[float]
+    substitutions: int
+    insertions: int
+    deletions: int
+    matches: int
+    tokens: list[TranscriptDiffTokenRead]

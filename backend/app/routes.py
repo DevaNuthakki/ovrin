@@ -176,6 +176,139 @@ def build_debug_case_ai_suggestion(
     )
 
 
+def tokenize_transcript(transcript: str) -> list[str]:
+    return transcript.strip().split()
+
+
+def build_structured_transcript_diff(
+    reference_text: str,
+    generated_text: str,
+    result_id: int,
+    test_case_id: int,
+    wer_score: float | None,
+    cer_score: float | None,
+) -> dict:
+    reference_words = tokenize_transcript(reference_text)
+    generated_words = tokenize_transcript(generated_text)
+
+    row_count = len(reference_words) + 1
+    column_count = len(generated_words) + 1
+
+    costs = [[0 for _ in range(column_count)] for _ in range(row_count)]
+
+    for row in range(row_count):
+        costs[row][0] = row
+
+    for column in range(column_count):
+        costs[0][column] = column
+
+    for row in range(1, row_count):
+        for column in range(1, column_count):
+            if reference_words[row - 1].lower() == generated_words[column - 1].lower():
+                substitution_cost = 0
+            else:
+                substitution_cost = 1
+
+            costs[row][column] = min(
+                costs[row - 1][column] + 1,
+                costs[row][column - 1] + 1,
+                costs[row - 1][column - 1] + substitution_cost,
+            )
+
+    tokens = []
+    substitutions = 0
+    insertions = 0
+    deletions = 0
+    matches = 0
+
+    row = len(reference_words)
+    column = len(generated_words)
+
+    while row > 0 or column > 0:
+        if (
+            row > 0
+            and column > 0
+            and reference_words[row - 1].lower() == generated_words[column - 1].lower()
+            and costs[row][column] == costs[row - 1][column - 1]
+        ):
+            word = reference_words[row - 1]
+            tokens.append(
+                {
+                    "operation": "match",
+                    "reference_word": word,
+                    "generated_word": generated_words[column - 1],
+                    "display_text": word,
+                }
+            )
+            matches += 1
+            row -= 1
+            column -= 1
+            continue
+
+        if (
+            row > 0
+            and column > 0
+            and costs[row][column] == costs[row - 1][column - 1] + 1
+        ):
+            reference_word = reference_words[row - 1]
+            generated_word = generated_words[column - 1]
+            tokens.append(
+                {
+                    "operation": "substitution",
+                    "reference_word": reference_word,
+                    "generated_word": generated_word,
+                    "display_text": f"{reference_word} → {generated_word}",
+                }
+            )
+            substitutions += 1
+            row -= 1
+            column -= 1
+            continue
+
+        if column > 0 and costs[row][column] == costs[row][column - 1] + 1:
+            generated_word = generated_words[column - 1]
+            tokens.append(
+                {
+                    "operation": "insertion",
+                    "reference_word": None,
+                    "generated_word": generated_word,
+                    "display_text": generated_word,
+                }
+            )
+            insertions += 1
+            column -= 1
+            continue
+
+        if row > 0:
+            reference_word = reference_words[row - 1]
+            tokens.append(
+                {
+                    "operation": "deletion",
+                    "reference_word": reference_word,
+                    "generated_word": None,
+                    "display_text": reference_word,
+                }
+            )
+            deletions += 1
+            row -= 1
+
+    tokens.reverse()
+
+    return {
+        "result_id": result_id,
+        "test_case_id": test_case_id,
+        "reference_transcript": reference_text,
+        "generated_transcript": generated_text,
+        "wer": wer_score,
+        "cer": cer_score,
+        "substitutions": substitutions,
+        "insertions": insertions,
+        "deletions": deletions,
+        "matches": matches,
+        "tokens": tokens,
+    }
+
+
 def validate_text_file_extension(file_name: str, label: str) -> None:
     extension = Path(file_name).suffix.lower()
 
@@ -617,6 +750,42 @@ def get_evaluation_result(
         raise HTTPException(status_code=404, detail="Evaluation result not found")
 
     return db_result
+
+
+@router.get(
+    "/results/{result_id}/transcript-diff",
+    response_model=schemas.TranscriptDiffRead,
+)
+def get_result_transcript_diff(
+    result_id: int,
+    db: Session = Depends(get_db),
+):
+    db_result = (
+        db.query(models.EvaluationResult)
+        .filter(models.EvaluationResult.id == result_id)
+        .first()
+    )
+
+    if db_result is None:
+        raise HTTPException(status_code=404, detail="Evaluation result not found")
+
+    db_test_case = (
+        db.query(models.TestCase)
+        .filter(models.TestCase.id == db_result.test_case_id)
+        .first()
+    )
+
+    if db_test_case is None:
+        raise HTTPException(status_code=404, detail="Linked test case not found")
+
+    return build_structured_transcript_diff(
+        reference_text=db_test_case.reference_transcript,
+        generated_text=db_result.generated_transcript,
+        result_id=db_result.id,
+        test_case_id=db_result.test_case_id,
+        wer_score=db_result.wer,
+        cer_score=db_result.cer,
+    )
 
 
 @router.post(

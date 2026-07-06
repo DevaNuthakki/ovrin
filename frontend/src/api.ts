@@ -72,8 +72,8 @@ export type DebugCase = {
   created_at: string;
 };
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, options);
 
   if (!response.ok) {
     throw new Error(`API request failed: ${response.status} ${response.statusText}`);
@@ -88,6 +88,19 @@ export async function getProjects() {
 
 export async function getProject(projectId: number) {
   return fetchJson<Project>(`/projects/${projectId}`);
+}
+
+export async function createProjectDataset(
+  projectId: number,
+  dataset: { name: string; description: string | null },
+) {
+  return fetchJson<Dataset>(`/projects/${projectId}/datasets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(dataset),
+  });
 }
 
 export async function getProjectDatasets(projectId: number) {

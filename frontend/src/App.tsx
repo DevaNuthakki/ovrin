@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import "./App.css";
 import {
+  createProjectDataset,
   getDatasetTestCases,
   getLatestComparison,
   getProject,
@@ -114,6 +115,10 @@ function App() {
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [datasetName, setDatasetName] = useState("");
+  const [datasetDescription, setDatasetDescription] = useState("");
+  const [datasetFormMessage, setDatasetFormMessage] = useState<string | null>(null);
+  const [isCreatingDataset, setIsCreatingDataset] = useState(false);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -306,6 +311,61 @@ function App() {
     setSelectedProject(null);
     setWorkspaceData(null);
     setWorkspaceError(null);
+    setDatasetName("");
+    setDatasetDescription("");
+    setDatasetFormMessage(null);
+  }
+
+  async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedProjectId || isCreatingDataset) {
+      return;
+    }
+
+    const name = datasetName.trim();
+    const description = datasetDescription.trim();
+
+    if (!name) {
+      setDatasetFormMessage("Dataset name is required.");
+      return;
+    }
+
+    try {
+      setIsCreatingDataset(true);
+      setDatasetFormMessage(null);
+
+      const newDataset = await createProjectDataset(selectedProjectId, {
+        name,
+        description: description || null,
+      });
+
+      setWorkspaceData((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          datasets: [newDataset, ...current.datasets],
+          testCasesByDataset: {
+            [newDataset.id]: [],
+            ...current.testCasesByDataset,
+          },
+        };
+      });
+
+      setDatasetName("");
+      setDatasetDescription("");
+      setDatasetFormMessage("Dataset created.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to create dataset.";
+
+      setDatasetFormMessage(message);
+    } finally {
+      setIsCreatingDataset(false);
+    }
   }
 
   function getDatasetName(datasetId: number) {
@@ -628,6 +688,43 @@ function App() {
                   </div>
                   <span className="count-badge">{workspaceData.datasets.length}</span>
                 </div>
+
+                <form className="dataset-form" onSubmit={handleCreateDataset}>
+                  <div className="form-grid">
+                    <label className="form-field">
+                      <span>Dataset name</span>
+                      <input
+                        value={datasetName}
+                        onChange={(event) => setDatasetName(event.target.value)}
+                        placeholder="Example: Noisy call samples"
+                      />
+                    </label>
+
+                    <label className="form-field">
+                      <span>Description</span>
+                      <textarea
+                        value={datasetDescription}
+                        onChange={(event) =>
+                          setDatasetDescription(event.target.value)
+                        }
+                        placeholder="What kind of audio or test cases belong here?"
+                        rows={3}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="form-actions">
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={isCreatingDataset}
+                    >
+                      {isCreatingDataset ? "Creating..." : "Create dataset"}
+                    </button>
+
+                    {datasetFormMessage && <span>{datasetFormMessage}</span>}
+                  </div>
+                </form>
 
                 {workspaceData.datasets.length === 0 ? (
                   <div className="empty-state">

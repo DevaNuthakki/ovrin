@@ -807,3 +807,208 @@ button:disabled {
 .comparison-actions {
   margin-top: 14px;
 }
+
+.debug-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.debug-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.34fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.debug-case-browser {
+  position: sticky;
+  top: 24px;
+}
+
+.debug-workspace-case-list {
+  display: grid;
+  gap: 12px;
+}
+
+.debug-workspace-case {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-height: auto;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.36);
+  color: #dbeafe;
+  text-align: left;
+}
+
+.debug-workspace-case:hover,
+.debug-workspace-case:focus-visible {
+  border-color: rgba(56, 189, 248, 0.46);
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.debug-workspace-case.active {
+  border-color: rgba(54, 211, 153, 0.5);
+  background: rgba(54, 211, 153, 0.1);
+}
+
+.debug-workspace-case strong {
+  color: #f8fafc;
+  line-height: 1.35;
+}
+
+.debug-workspace-case span:not(.severity-badge) {
+  color: #93a4b8;
+  font-size: 0.88rem;
+}
+
+.debug-label-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.debug-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #bae6fd;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.debug-run-grid,
+.transcript-grid,
+.debug-notes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.debug-run-card,
+.transcript-panel,
+.diff-panel {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(2, 6, 23, 0.36);
+}
+
+.debug-run-card-title,
+.transcript-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.debug-run-card h4,
+.transcript-panel h4,
+.diff-panel h4 {
+  margin-bottom: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+}
+
+.debug-run-card p,
+.transcript-panel p {
+  color: #aebdd0;
+  line-height: 1.65;
+}
+
+.transcript-panel p {
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.transcript-panel-header span {
+  color: #93a4b8;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.debug-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.debug-meta-grid div {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.debug-meta-grid dt {
+  margin-bottom: 4px;
+  color: #93a4b8;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.debug-meta-grid dd {
+  margin: 0;
+  color: #f8fafc;
+  font-weight: 750;
+}
+
+.diff-panel {
+  margin-top: 18px;
+}
+
+.diff-token-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  line-height: 2;
+}
+
+.diff-token {
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: #dbeafe;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.diff-token.reference {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.16);
+  text-decoration: line-through;
+}
+
+.diff-token.hypothesis {
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.14);
+}
+
+.diff-token.same {
+  color: #cbd5e1;
+}
+
+@media (max-width: 1100px) {
+  .debug-summary-grid,
+  .debug-workspace-grid,
+  .debug-run-grid,
+  .transcript-grid,
+  .debug-notes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .debug-case-browser {
+    position: static;
+  }
+}

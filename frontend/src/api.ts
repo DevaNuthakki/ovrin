@@ -79,10 +79,22 @@ export type DebugCase = {
   failure_type: string;
   baseline_run_id: number | null;
   current_run_id: number | null;
+  test_case_id: number | null;
+  baseline_result_id: number | null;
+  current_result_id: number | null;
   summary: string | null;
   engineer_notes: string | null;
   ai_suggestion: string | null;
   created_at: string;
+};
+
+export type DebugCaseDetail = {
+  debug_case: DebugCase;
+  test_case: TestCase | null;
+  baseline_run: EvaluationRun | null;
+  current_run: EvaluationRun | null;
+  baseline_result: EvaluationResult | null;
+  current_result: EvaluationResult | null;
 };
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
@@ -202,4 +214,9 @@ export async function getLatestComparison() {
 
 export async function getProjectDebugCases(projectId: number) {
   return fetchJson<DebugCase[]>(`/projects/${projectId}/debug-cases`);
+}
+
+
+export async function getDebugCaseDetails(debugCaseId: number) {
+  return fetchJson<DebugCaseDetail>(`/debug-cases/${debugCaseId}/details`);
 }

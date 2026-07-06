@@ -164,6 +164,10 @@ class DebugCase(Base):
     baseline_run_id = Column(Integer, nullable=True)
     current_run_id = Column(Integer, nullable=True)
 
+    test_case_id = Column(Integer, ForeignKey("test_cases.id"), nullable=True)
+    baseline_result_id = Column(Integer, ForeignKey("evaluation_results.id"), nullable=True)
+    current_result_id = Column(Integer, ForeignKey("evaluation_results.id"), nullable=True)
+
     summary = Column(Text, nullable=True)
     engineer_notes = Column(Text, nullable=True)
     ai_suggestion = Column(Text, nullable=True)

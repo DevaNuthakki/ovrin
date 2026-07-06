@@ -140,6 +140,9 @@ class DebugCaseRead(BaseModel):
     failure_type: str
     baseline_run_id: Optional[int]
     current_run_id: Optional[int]
+    test_case_id: Optional[int]
+    baseline_result_id: Optional[int]
+    current_result_id: Optional[int]
     summary: Optional[str]
     engineer_notes: Optional[str]
     ai_suggestion: Optional[str]
@@ -147,3 +150,12 @@ class DebugCaseRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DebugCaseDetailRead(BaseModel):
+    debug_case: DebugCaseRead
+    test_case: Optional[TestCaseRead]
+    baseline_run: Optional[EvaluationRunRead]
+    current_run: Optional[EvaluationRunRead]
+    baseline_result: Optional[EvaluationResultRead]
+    current_result: Optional[EvaluationResultRead]

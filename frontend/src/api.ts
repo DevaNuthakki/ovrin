@@ -177,6 +177,19 @@ export async function getProjectComparisons(projectId: number) {
   return fetchJson<RunComparison[]>(`/projects/${projectId}/comparisons`);
 }
 
+export async function compareRuns(runIds: {
+  baseline_run_id: number;
+  current_run_id: number;
+}) {
+  return fetchJson<RunComparison>("/runs/compare", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(runIds),
+  });
+}
+
 export async function getLatestComparison() {
   return fetchJson<RunComparison>("/comparisons/1");
 }

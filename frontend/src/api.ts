@@ -130,6 +130,19 @@ export async function getProjectRuns(projectId: number) {
   return fetchJson<EvaluationRun[]>(`/projects/${projectId}/runs`);
 }
 
+export async function createProjectRun(
+  projectId: number,
+  run: { run_name: string; model_name: string },
+) {
+  return fetchJson<EvaluationRun>(`/projects/${projectId}/runs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(run),
+  });
+}
+
 export async function getProjectComparisons(projectId: number) {
   return fetchJson<RunComparison[]>(`/projects/${projectId}/comparisons`);
 }

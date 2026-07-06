@@ -3,6 +3,7 @@ import "./App.css";
 import {
   createDatasetTestCase,
   createProjectDataset,
+  createProjectRun,
   getDatasetTestCases,
   getLatestComparison,
   getProject,
@@ -126,6 +127,10 @@ function App() {
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [testCaseFormMessage, setTestCaseFormMessage] = useState<string | null>(null);
   const [isCreatingTestCase, setIsCreatingTestCase] = useState(false);
+  const [runName, setRunName] = useState("");
+  const [modelName, setModelName] = useState("");
+  const [runFormMessage, setRunFormMessage] = useState<string | null>(null);
+  const [isCreatingRun, setIsCreatingRun] = useState(false);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -328,6 +333,9 @@ function App() {
     setAudioFile(null);
     setReferenceFile(null);
     setTestCaseFormMessage(null);
+    setRunName("");
+    setModelName("");
+    setRunFormMessage(null);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -444,6 +452,54 @@ function App() {
       setTestCaseFormMessage(message);
     } finally {
       setIsCreatingTestCase(false);
+    }
+  }
+
+  async function handleCreateRun(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedProjectId || isCreatingRun) {
+      return;
+    }
+
+    const name = runName.trim();
+    const model = modelName.trim();
+
+    if (!name) {
+      setRunFormMessage("Run name is required.");
+      return;
+    }
+
+    try {
+      setIsCreatingRun(true);
+      setRunFormMessage(null);
+
+      const newRun = await createProjectRun(selectedProjectId, {
+        run_name: name,
+        model_name: model || "not_configured",
+      });
+
+      setWorkspaceData((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          runs: [newRun, ...current.runs],
+        };
+      });
+
+      setRunName("");
+      setModelName("");
+      setRunFormMessage("Run created.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to create run.";
+
+      setRunFormMessage(message);
+    } finally {
+      setIsCreatingRun(false);
     }
   }
 
@@ -942,6 +998,40 @@ function App() {
                 </div>
                 <span className="count-badge">{workspaceData.runs.length}</span>
               </div>
+
+              <form className="dataset-form run-form" onSubmit={handleCreateRun}>
+                <div className="form-grid run-form-grid">
+                  <label className="form-field">
+                    <span>Run name</span>
+                    <input
+                      value={runName}
+                      onChange={(event) => setRunName(event.target.value)}
+                      placeholder="Example: Whisper small v2 baseline"
+                    />
+                  </label>
+
+                  <label className="form-field">
+                    <span>Model name</span>
+                    <input
+                      value={modelName}
+                      onChange={(event) => setModelName(event.target.value)}
+                      placeholder="Example: whisper-small-v2"
+                    />
+                  </label>
+                </div>
+
+                <div className="form-actions">
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={isCreatingRun}
+                  >
+                    {isCreatingRun ? "Creating..." : "Create run"}
+                  </button>
+
+                  {runFormMessage && <span>{runFormMessage}</span>}
+                </div>
+              </form>
 
               {workspaceData.runs.length === 0 ? (
                 <div className="empty-state">

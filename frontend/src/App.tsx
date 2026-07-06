@@ -1,12 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import {
+  getDatasetTestCases,
   getLatestComparison,
+  getProject,
+  getProjectComparisons,
+  getProjectDatasets,
   getProjectDebugCases,
+  getProjectRuns,
   getProjects,
+  type Dataset,
   type DebugCase,
+  type EvaluationRun,
   type Project,
   type RunComparison,
+  type TestCase,
 } from "./api";
 
 type MetricCard = {
@@ -14,6 +22,14 @@ type MetricCard = {
   value: string;
   helper: string;
   status?: "good" | "warning" | "danger" | "neutral";
+};
+
+type WorkspaceData = {
+  datasets: Dataset[];
+  testCasesByDataset: Record<number, TestCase[]>;
+  runs: EvaluationRun[];
+  comparisons: RunComparison[];
+  debugCases: DebugCase[];
 };
 
 function formatMetric(value: number | null | undefined) {
@@ -25,12 +41,26 @@ function formatMetric(value: number | null | undefined) {
   return `${sign}${value.toFixed(3)}`;
 }
 
+function formatScore(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  return value.toFixed(3);
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",
   });
+}
+
+function cleanLabel(value: string | null | undefined) {
+  if (!value) return "Not available";
+
+  return value.replaceAll("_", " ");
 }
 
 function getStatusLabel(status?: MetricCard["status"]) {
@@ -60,18 +90,30 @@ function getMetricStatus(value: number | null | undefined): MetricCard["status"]
   return "neutral";
 }
 
-function getComparisonStatusLabel(status: string | undefined) {
-  if (!status) return "No comparison";
+function getComparisonStatus(status: string | undefined): MetricCard["status"] {
+  if (status === "regression") return "danger";
+  if (status === "improvement") return "good";
+  return "neutral";
+}
 
-  return status.replaceAll("_", " ");
+function getQualityStatus(label: string | null): MetricCard["status"] {
+  if (label === "excellent" || label === "good") return "good";
+  if (label === "needs_review") return "warning";
+  if (label === "regression") return "danger";
+  return "neutral";
 }
 
 function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [comparison, setComparison] = useState<RunComparison | null>(null);
   const [debugCases, setDebugCases] = useState<DebugCase[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [workspaceData, setWorkspaceData] = useState<WorkspaceData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -82,12 +124,20 @@ function App() {
         const projectData = await getProjects();
         setProjects(projectData);
 
-        const latestComparison = await getLatestComparison();
-        setComparison(latestComparison);
+        try {
+          const latestComparison = await getLatestComparison();
+          setComparison(latestComparison);
+        } catch {
+          setComparison(null);
+        }
 
-        const firstProjectId = projectData[0]?.id ?? 1;
-        const debugCaseData = await getProjectDebugCases(firstProjectId);
-        setDebugCases(debugCaseData);
+        const firstProjectId = projectData[0]?.id;
+        if (firstProjectId) {
+          const debugCaseData = await getProjectDebugCases(firstProjectId);
+          setDebugCases(debugCaseData);
+        } else {
+          setDebugCases([]);
+        }
       } catch (error) {
         const message =
           error instanceof Error
@@ -102,6 +152,53 @@ function App() {
 
     loadDashboardData();
   }, []);
+
+  useEffect(() => {
+    async function loadWorkspace(projectId: number) {
+      try {
+        setIsWorkspaceLoading(true);
+        setWorkspaceError(null);
+
+        const [project, datasets, runs, comparisons, projectDebugCases] =
+          await Promise.all([
+            getProject(projectId),
+            getProjectDatasets(projectId),
+            getProjectRuns(projectId),
+            getProjectComparisons(projectId),
+            getProjectDebugCases(projectId),
+          ]);
+
+        const testCaseEntries = await Promise.all(
+          datasets.map(async (dataset) => {
+            const testCases = await getDatasetTestCases(dataset.id);
+            return [dataset.id, testCases] as const;
+          }),
+        );
+
+        setSelectedProject(project);
+        setWorkspaceData({
+          datasets,
+          runs,
+          comparisons,
+          debugCases: projectDebugCases,
+          testCasesByDataset: Object.fromEntries(testCaseEntries),
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to load project workspace.";
+
+        setWorkspaceError(message);
+      } finally {
+        setIsWorkspaceLoading(false);
+      }
+    }
+
+    if (selectedProjectId) {
+      loadWorkspace(selectedProjectId);
+    }
+  }, [selectedProjectId]);
 
   const openDebugCases = debugCases.filter(
     (debugCase) => debugCase.status !== "closed",
@@ -149,47 +246,76 @@ function App() {
     [comparison, openDebugCases.length, projects.length],
   );
 
-  return (
-    <main className="app-shell">
-      <aside className="sidebar" aria-label="Primary navigation">
-        <div className="brand-block">
-          <div className="brand-mark" aria-hidden="true">
-            O
-          </div>
-          <div>
-            <p className="eyebrow">Ovrin</p>
-            <h1>Speech AI Debugger</h1>
-          </div>
-        </div>
+  const workspaceTestCases = useMemo(() => {
+    if (!workspaceData) return [];
 
-        <nav className="nav-list" aria-label="Ovrin sections">
-          <a className="nav-link active" href="#dashboard">
-            Dashboard
-          </a>
-          <a className="nav-link" href="#projects">
-            Projects
-          </a>
-          <a className="nav-link" href="#runs">
-            Runs
-          </a>
-          <a className="nav-link" href="#comparisons">
-            Comparisons
-          </a>
-          <a className="nav-link" href="#debug-cases">
-            Debug cases
-          </a>
-        </nav>
+    return Object.values(workspaceData.testCasesByDataset).flat();
+  }, [workspaceData]);
 
-        <section className="sidebar-note" aria-labelledby="workflow-title">
-          <h2 id="workflow-title">Current workflow</h2>
-          <p>
-            Evaluate runs, compare baseline vs current, detect regressions, and
-            create debug cases for engineers.
-          </p>
-        </section>
-      </aside>
+  const workspaceMetrics: MetricCard[] = useMemo(() => {
+    if (!workspaceData) return [];
 
-      <section className="content-area">
+    const openCases = workspaceData.debugCases.filter(
+      (debugCase) => debugCase.status !== "closed",
+    );
+
+    const evaluatedRuns = workspaceData.runs.filter(
+      (run) => run.status === "evaluated",
+    );
+
+    const latestComparison = workspaceData.comparisons[0];
+
+    return [
+      {
+        label: "Datasets",
+        value: String(workspaceData.datasets.length),
+        helper: "Dataset groups inside this project",
+        status: "neutral",
+      },
+      {
+        label: "Test cases",
+        value: String(workspaceTestCases.length),
+        helper: "Reference samples ready for evaluation",
+        status: workspaceTestCases.length > 0 ? "good" : "neutral",
+      },
+      {
+        label: "Evaluated runs",
+        value: String(evaluatedRuns.length),
+        helper: "Runs with computed WER/CER results",
+        status: evaluatedRuns.length > 0 ? "good" : "neutral",
+      },
+      {
+        label: "Open debug cases",
+        value: String(openCases.length),
+        helper: openCases.length > 0 ? "Needs engineer review" : "No open cases",
+        status: openCases.length > 0 ? "danger" : "good",
+      },
+      {
+        label: "Latest WER delta",
+        value: formatMetric(latestComparison?.wer_delta),
+        helper: latestComparison
+          ? cleanLabel(latestComparison.comparison_status)
+          : "No run comparison yet",
+        status: getMetricStatus(latestComparison?.wer_delta),
+      },
+    ];
+  }, [workspaceData, workspaceTestCases.length]);
+
+  function closeWorkspace() {
+    setSelectedProjectId(null);
+    setSelectedProject(null);
+    setWorkspaceData(null);
+    setWorkspaceError(null);
+  }
+
+  function getDatasetName(datasetId: number) {
+    const dataset = workspaceData?.datasets.find((item) => item.id === datasetId);
+    return dataset?.name ?? `Dataset #${datasetId}`;
+  }
+
+  function renderDashboard() {
+    return (
+      <>
         <header className="page-header" id="dashboard">
           <div>
             <p className="eyebrow">Dashboard</p>
@@ -251,65 +377,72 @@ function App() {
                 <h3>Baseline vs current run</h3>
               </div>
               <span
-                className={`status-pill ${
-                  comparison?.comparison_status === "regression"
-                    ? "danger"
-                    : "neutral"
-                }`}
+                className={`status-pill ${getComparisonStatus(
+                  comparison?.comparison_status,
+                )}`}
               >
-                {getComparisonStatusLabel(comparison?.comparison_status)}
+                {cleanLabel(comparison?.comparison_status ?? "No comparison")}
               </span>
             </div>
 
-            <dl className="comparison-list">
-              <div>
-                <dt>Baseline run ID</dt>
-                <dd>{comparison?.baseline_run_id ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Current run ID</dt>
-                <dd>{comparison?.current_run_id ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>WER change</dt>
-                <dd
-                  className={
-                    comparison?.wer_delta && comparison.wer_delta > 0
-                      ? "danger-text"
-                      : ""
-                  }
-                >
-                  {formatMetric(comparison?.wer_delta)}
-                </dd>
-              </div>
-              <div>
-                <dt>CER change</dt>
-                <dd
-                  className={
-                    comparison?.cer_delta && comparison.cer_delta > 0
-                      ? "warning-text"
-                      : ""
-                  }
-                >
-                  {formatMetric(comparison?.cer_delta)}
-                </dd>
-              </div>
-            </dl>
+            {comparison ? (
+              <>
+                <dl className="comparison-list">
+                  <div>
+                    <dt>Baseline WER</dt>
+                    <dd>{formatScore(comparison.baseline_average_wer)}</dd>
+                  </div>
+                  <div>
+                    <dt>Current WER</dt>
+                    <dd>{formatScore(comparison.current_average_wer)}</dd>
+                  </div>
+                  <div>
+                    <dt>WER delta</dt>
+                    <dd
+                      className={
+                        comparison.wer_delta && comparison.wer_delta > 0
+                          ? "danger-text"
+                          : undefined
+                      }
+                    >
+                      {formatMetric(comparison.wer_delta)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>CER delta</dt>
+                    <dd
+                      className={
+                        comparison.cer_delta && comparison.cer_delta > 0
+                          ? "warning-text"
+                          : undefined
+                      }
+                    >
+                      {formatMetric(comparison.cer_delta)}
+                    </dd>
+                  </div>
+                </dl>
 
-            <div className="insight-box" role="note">
-              <strong>Engineer summary</strong>
-              <p>
-                {comparison?.summary ??
-                  "No comparison summary is available yet. Create and compare evaluation runs to populate this view."}
-              </p>
-            </div>
+                <div className="insight-box">
+                  <strong>Regression summary</strong>
+                  <p>
+                    {comparison.summary ??
+                      "No comparison summary is available yet."}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="empty-state">
+                No comparison found yet. Create and evaluate two runs, then compare
+                them from the backend API.
+              </div>
+            )}
           </article>
 
           <article className="panel" id="debug-cases">
             <div className="panel-header">
               <div>
                 <p className="eyebrow">Debug queue</p>
-                <h3>Open debug cases</h3>
+                <h3>Open regression cases</h3>
               </div>
               <span className="count-badge">{openDebugCases.length}</span>
             </div>
@@ -389,7 +522,11 @@ function App() {
                     </div>
                   </dl>
 
-                  <button className="text-button" type="button">
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => setSelectedProjectId(project.id)}
+                  >
                     Open project workspace
                   </button>
                 </article>
@@ -416,6 +553,327 @@ function App() {
             <li>Debug case</li>
           </ol>
         </section>
+      </>
+    );
+  }
+
+  function renderWorkspace() {
+    const latestComparison = workspaceData?.comparisons[0];
+    const openCases =
+      workspaceData?.debugCases.filter((debugCase) => debugCase.status !== "closed") ??
+      [];
+
+    return (
+      <>
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Project workspace</p>
+            <h2>{selectedProject?.name ?? "Loading project..."}</h2>
+            <p className="page-description">
+              {selectedProject?.description ??
+                "Inspect datasets, test cases, runs, comparisons, and debug cases for this ASR project."}
+            </p>
+          </div>
+
+          <div className="header-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={closeWorkspace}
+            >
+              Back to dashboard
+            </button>
+            <button className="primary-button" type="button">
+              New run
+            </button>
+          </div>
+        </header>
+
+        {isWorkspaceLoading && (
+          <section className="state-banner" role="status" aria-live="polite">
+            Loading project workspace from the backend API...
+          </section>
+        )}
+
+        {workspaceError && (
+          <section className="state-banner error" role="alert">
+            <strong>Unable to load project workspace.</strong>
+            <span>{workspaceError}</span>
+          </section>
+        )}
+
+        {workspaceData && (
+          <>
+            <section className="workspace-summary" aria-label="Workspace metrics">
+              {workspaceMetrics.map((metric) => (
+                <article className="metric-card" key={metric.label}>
+                  <div className="metric-card-header">
+                    <p>{metric.label}</p>
+                    <span className={`status-pill ${metric.status}`}>
+                      {getStatusLabel(metric.status)}
+                    </span>
+                  </div>
+                  <strong>{metric.value}</strong>
+                  <span>{metric.helper}</span>
+                </article>
+              ))}
+            </section>
+
+            <section className="workspace-grid">
+              <article className="panel">
+                <div className="panel-header">
+                  <div>
+                    <p className="eyebrow">Datasets</p>
+                    <h3>Reference groups</h3>
+                  </div>
+                  <span className="count-badge">{workspaceData.datasets.length}</span>
+                </div>
+
+                {workspaceData.datasets.length === 0 ? (
+                  <div className="empty-state">
+                    No datasets yet. Add a dataset before uploading test cases.
+                  </div>
+                ) : (
+                  <div className="item-list">
+                    {workspaceData.datasets.map((dataset) => (
+                      <article className="list-card" key={dataset.id}>
+                        <div>
+                          <p className="eyebrow">Dataset #{dataset.id}</p>
+                          <h4>{dataset.name}</h4>
+                        </div>
+                        <p>
+                          {dataset.description ??
+                            "No dataset description provided yet."}
+                        </p>
+                        <span>
+                          {workspaceData.testCasesByDataset[dataset.id]?.length ?? 0} test cases
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </article>
+
+              <article className="panel">
+                <div className="panel-header">
+                  <div>
+                    <p className="eyebrow">Test cases</p>
+                    <h3>Evaluation samples</h3>
+                  </div>
+                  <span className="count-badge">{workspaceTestCases.length}</span>
+                </div>
+
+                {workspaceTestCases.length === 0 ? (
+                  <div className="empty-state">
+                    No test cases yet. Upload audio and reference transcript files
+                    into a dataset.
+                  </div>
+                ) : (
+                  <div className="item-list">
+                    {workspaceTestCases.slice(0, 5).map((testCase) => (
+                      <article className="list-card" key={testCase.id}>
+                        <div>
+                          <p className="eyebrow">
+                            {getDatasetName(testCase.dataset_id)}
+                          </p>
+                          <h4>{testCase.title}</h4>
+                        </div>
+                        <p>{testCase.reference_transcript.slice(0, 140)}...</p>
+                        <span>Created {formatDate(testCase.created_at)}</span>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </article>
+            </section>
+
+            <section className="panel full-width-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Runs</p>
+                  <h3>Evaluation history</h3>
+                </div>
+                <span className="count-badge">{workspaceData.runs.length}</span>
+              </div>
+
+              {workspaceData.runs.length === 0 ? (
+                <div className="empty-state">
+                  No evaluation runs yet. Create a run, evaluate test cases, then
+                  compare it against another run.
+                </div>
+              ) : (
+                <div className="run-list">
+                  {workspaceData.runs.map((run) => (
+                    <article className="run-row" key={run.id}>
+                      <div>
+                        <p className="eyebrow">Run #{run.id}</p>
+                        <h4>{run.run_name}</h4>
+                        <span>{run.model_name}</span>
+                      </div>
+
+                      <div className="run-metrics">
+                        <span className="status-pill neutral">{run.status}</span>
+                        <span
+                          className={`status-pill ${getQualityStatus(
+                            run.quality_label,
+                          )}`}
+                        >
+                          {cleanLabel(run.quality_label)}
+                        </span>
+                        <strong>WER {formatScore(run.wer)}</strong>
+                        <strong>CER {formatScore(run.cer)}</strong>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="dashboard-grid">
+              <article className="panel">
+                <div className="panel-header">
+                  <div>
+                    <p className="eyebrow">Comparisons</p>
+                    <h3>Baseline vs current</h3>
+                  </div>
+                  <span className="count-badge">
+                    {workspaceData.comparisons.length}
+                  </span>
+                </div>
+
+                {latestComparison ? (
+                  <>
+                    <dl className="comparison-list">
+                      <div>
+                        <dt>Baseline run</dt>
+                        <dd>#{latestComparison.baseline_run_id}</dd>
+                      </div>
+                      <div>
+                        <dt>Current run</dt>
+                        <dd>#{latestComparison.current_run_id}</dd>
+                      </div>
+                      <div>
+                        <dt>WER delta</dt>
+                        <dd>{formatMetric(latestComparison.wer_delta)}</dd>
+                      </div>
+                      <div>
+                        <dt>CER delta</dt>
+                        <dd>{formatMetric(latestComparison.cer_delta)}</dd>
+                      </div>
+                    </dl>
+
+                    <div className="insight-box">
+                      <strong>{cleanLabel(latestComparison.comparison_status)}</strong>
+                      <p>
+                        {latestComparison.summary ??
+                          "No comparison summary is available yet."}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    No comparisons yet. Compare two evaluated runs to see regression
+                    deltas here.
+                  </div>
+                )}
+              </article>
+
+              <article className="panel">
+                <div className="panel-header">
+                  <div>
+                    <p className="eyebrow">Debug cases</p>
+                    <h3>Regression work queue</h3>
+                  </div>
+                  <span className="count-badge">{openCases.length}</span>
+                </div>
+
+                {openCases.length === 0 ? (
+                  <div className="empty-state">
+                    No open debug cases for this project.
+                  </div>
+                ) : (
+                  <div className="debug-case-list">
+                    {openCases.map((debugCase) => (
+                      <article className="debug-case-card" key={debugCase.id}>
+                        <div className="debug-case-topline">
+                          <span className={`severity-badge ${debugCase.severity}`}>
+                            {debugCase.severity}
+                          </span>
+                          <span className="status-pill neutral">
+                            {debugCase.status}
+                          </span>
+                        </div>
+
+                        <h4>{debugCase.title}</h4>
+                        <p>
+                          {debugCase.summary ??
+                            "No summary is available for this debug case yet."}
+                        </p>
+
+                        <button className="text-button" type="button">
+                          Open debug case
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </article>
+            </section>
+          </>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar" aria-label="Primary navigation">
+        <div className="brand-block">
+          <div className="brand-mark" aria-hidden="true">
+            O
+          </div>
+          <div>
+            <p className="eyebrow">Ovrin</p>
+            <h1>Speech AI Debugger</h1>
+          </div>
+        </div>
+
+        <nav className="nav-list" aria-label="Ovrin sections">
+          <button
+            className={`nav-link nav-button ${!selectedProjectId ? "active" : ""}`}
+            type="button"
+            onClick={closeWorkspace}
+          >
+            Dashboard
+          </button>
+          <a className="nav-link" href="#projects" onClick={closeWorkspace}>
+            Projects
+          </a>
+          <a className="nav-link" href="#runs">
+            Runs
+          </a>
+          <a className="nav-link" href="#comparisons">
+            Comparisons
+          </a>
+          <a className="nav-link" href="#debug-cases">
+            Debug cases
+          </a>
+        </nav>
+
+        <section className="sidebar-note" aria-labelledby="workflow-title">
+          <h2 id="workflow-title">
+            {selectedProject ? "Current project" : "Current workflow"}
+          </h2>
+          <p>
+            {selectedProject
+              ? selectedProject.name
+              : "Evaluate runs, compare baseline vs current, detect regressions, and create debug cases for engineers."}
+          </p>
+        </section>
+      </aside>
+
+      <section className="content-area">
+        {selectedProjectId ? renderWorkspace() : renderDashboard()}
       </section>
     </main>
   );

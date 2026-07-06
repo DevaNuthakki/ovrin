@@ -16,6 +16,7 @@ import {
   getProjectDebugCases,
   getProjectRuns,
   getProjects,
+  getResultTranscriptDiff,
   type Dataset,
   type DebugCase,
   type DebugCaseDetail,
@@ -23,6 +24,7 @@ import {
   type EvaluationRun,
   type Project,
   type RunComparison,
+  type StructuredTranscriptDiff,
   type TestCase,
 } from "./api";
 
@@ -35,7 +37,14 @@ type MetricCard = {
 
 type TranscriptDiffToken = {
   value: string;
-  type: "same" | "reference" | "hypothesis";
+  type:
+    | "same"
+    | "reference"
+    | "hypothesis"
+    | "match"
+    | "insertion"
+    | "deletion"
+    | "substitution";
 };
 
 type WorkspaceData = {
@@ -285,6 +294,12 @@ function App() {
     useState<DebugCaseDetail | null>(null);
   const [isDebugDetailsLoading, setIsDebugDetailsLoading] = useState(false);
   const [debugDetailsError, setDebugDetailsError] = useState<string | null>(null);
+  const [selectedTranscriptDiff, setSelectedTranscriptDiff] =
+    useState<StructuredTranscriptDiff | null>(null);
+  const [isTranscriptDiffLoading, setIsTranscriptDiffLoading] = useState(false);
+  const [transcriptDiffError, setTranscriptDiffError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -410,6 +425,38 @@ function App() {
       setIsDebugDetailsLoading(false);
     }
   }, [selectedDebugCaseId]);
+
+  useEffect(() => {
+    const currentResultId = selectedDebugCaseDetails?.current_result?.id;
+
+    async function loadTranscriptDiff(resultId: number) {
+      try {
+        setIsTranscriptDiffLoading(true);
+        setTranscriptDiffError(null);
+
+        const transcriptDiff = await getResultTranscriptDiff(resultId);
+        setSelectedTranscriptDiff(transcriptDiff);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to load structured transcript diff.";
+
+        setTranscriptDiffError(message);
+        setSelectedTranscriptDiff(null);
+      } finally {
+        setIsTranscriptDiffLoading(false);
+      }
+    }
+
+    if (currentResultId) {
+      loadTranscriptDiff(currentResultId);
+    } else {
+      setSelectedTranscriptDiff(null);
+      setTranscriptDiffError(null);
+      setIsTranscriptDiffLoading(false);
+    }
+  }, [selectedDebugCaseDetails?.current_result?.id]);
 
   const openDebugCases = debugCases.filter(
     (debugCase) => debugCase.status !== "closed",
@@ -539,6 +586,9 @@ function App() {
     setSelectedDebugCaseId(null);
     setSelectedDebugCaseDetails(null);
     setDebugDetailsError(null);
+    setSelectedTranscriptDiff(null);
+    setTranscriptDiffError(null);
+    setIsTranscriptDiffLoading(false);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -1162,7 +1212,24 @@ function App() {
         }
       : null;
 
-    const diffTokens = getTranscriptDiff(referenceTranscript, generatedTranscript);
+    const structuredDiffTokens: TranscriptDiffToken[] | null =
+      selectedTranscriptDiff?.tokens.map((token) => ({
+        value: token.display_text,
+        type: token.operation,
+      })) ?? null;
+
+    const diffTokens =
+      structuredDiffTokens ?? getTranscriptDiff(referenceTranscript, generatedTranscript);
+
+    const diffSummary = selectedTranscriptDiff
+      ? [
+          ["Matches", selectedTranscriptDiff.matches],
+          ["Substitutions", selectedTranscriptDiff.substitutions],
+          ["Insertions", selectedTranscriptDiff.insertions],
+          ["Deletions", selectedTranscriptDiff.deletions],
+        ]
+      : [];
+
     const debugLabels = selectedCase
       ? getDebugLabels(selectedCase, labelSourceRun)
       : [];
@@ -1275,6 +1342,19 @@ function App() {
           <section className="state-banner error" role="alert">
             <strong>Unable to load debug details.</strong>
             <span>{debugDetailsError}</span>
+          </section>
+        )}
+
+        {isTranscriptDiffLoading && (
+          <section className="state-banner" role="status" aria-live="polite">
+            Loading structured transcript diff...
+          </section>
+        )}
+
+        {transcriptDiffError && (
+          <section className="state-banner error" role="alert">
+            <strong>Unable to load structured transcript diff.</strong>
+            <span>{transcriptDiffError}</span>
           </section>
         )}
 
@@ -1435,8 +1515,23 @@ function App() {
                 <section className="diff-panel" aria-label="Transcript difference view">
                   <div className="transcript-panel-header">
                     <h4>Difference view</h4>
-                    <span>Reference-only words are red, generated-only words are yellow.</span>
+                    <span>
+                      {selectedTranscriptDiff
+                        ? "Backend structured diff"
+                        : "Frontend fallback diff"}
+                    </span>
                   </div>
+
+                  {diffSummary.length > 0 && (
+                    <dl className="diff-summary-row" aria-label="Transcript diff counts">
+                      {diffSummary.map(([label, value]) => (
+                        <div key={label}>
+                          <dt>{label}</dt>
+                          <dd>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
 
                   {diffTokens.length === 0 ? (
                     <div className="empty-state">

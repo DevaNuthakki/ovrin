@@ -97,6 +97,27 @@ export type DebugCaseDetail = {
   current_result: EvaluationResult | null;
 };
 
+export type StructuredTranscriptDiffToken = {
+  operation: "match" | "insertion" | "deletion" | "substitution";
+  reference_word: string | null;
+  generated_word: string | null;
+  display_text: string;
+};
+
+export type StructuredTranscriptDiff = {
+  result_id: number;
+  test_case_id: number;
+  reference_transcript: string;
+  generated_transcript: string;
+  wer: number | null;
+  cer: number | null;
+  substitutions: number;
+  insertions: number;
+  deletions: number;
+  matches: number;
+  tokens: StructuredTranscriptDiffToken[];
+};
+
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, options);
 
@@ -219,4 +240,11 @@ export async function getProjectDebugCases(projectId: number) {
 
 export async function getDebugCaseDetails(debugCaseId: number) {
   return fetchJson<DebugCaseDetail>(`/debug-cases/${debugCaseId}/details`);
+}
+
+
+export async function getResultTranscriptDiff(resultId: number) {
+  return fetchJson<StructuredTranscriptDiff>(
+    `/results/${resultId}/transcript-diff`,
+  );
 }

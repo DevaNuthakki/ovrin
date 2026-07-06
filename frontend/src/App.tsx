@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import "./App.css";
 import {
   compareRuns,
+  createDebugCaseFromComparison,
   createDatasetTestCase,
   createProjectDataset,
   createProjectRun,
@@ -142,6 +143,8 @@ function App() {
   const [currentRunId, setCurrentRunId] = useState<number | "">("");
   const [comparisonMessage, setComparisonMessage] = useState<string | null>(null);
   const [isComparingRuns, setIsComparingRuns] = useState(false);
+  const [debugCaseMessage, setDebugCaseMessage] = useState<string | null>(null);
+  const [isCreatingDebugCase, setIsCreatingDebugCase] = useState(false);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -362,6 +365,7 @@ function App() {
     setBaselineRunId("");
     setCurrentRunId("");
     setComparisonMessage(null);
+    setDebugCaseMessage(null);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -630,6 +634,47 @@ function App() {
       setComparisonMessage(message);
     } finally {
       setIsComparingRuns(false);
+    }
+  }
+
+  async function handleCreateDebugCase(comparisonId: number) {
+    if (isCreatingDebugCase) {
+      return;
+    }
+
+    try {
+      setIsCreatingDebugCase(true);
+      setDebugCaseMessage(null);
+
+      const debugCase = await createDebugCaseFromComparison(comparisonId);
+
+      setWorkspaceData((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const alreadyExists = current.debugCases.some(
+          (item) => item.id === debugCase.id,
+        );
+
+        return {
+          ...current,
+          debugCases: alreadyExists
+            ? current.debugCases.map((item) =>
+                item.id === debugCase.id ? debugCase : item,
+              )
+            : [debugCase, ...current.debugCases],
+        };
+      });
+
+      setDebugCaseMessage("Debug case ready.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to create debug case.";
+
+      setDebugCaseMessage(message);
+    } finally {
+      setIsCreatingDebugCase(false);
     }
   }
 
@@ -1365,6 +1410,26 @@ function App() {
                         {latestComparison.summary ??
                           "No comparison summary is available yet."}
                       </p>
+                    </div>
+
+                    <div className="form-actions comparison-actions">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={
+                          isCreatingDebugCase ||
+                          latestComparison.comparison_status !== "regression"
+                        }
+                        onClick={() =>
+                          handleCreateDebugCase(latestComparison.id)
+                        }
+                      >
+                        {isCreatingDebugCase
+                          ? "Creating..."
+                          : "Create debug case"}
+                      </button>
+
+                      {debugCaseMessage && <span>{debugCaseMessage}</span>}
                     </div>
                   </>
                 ) : (

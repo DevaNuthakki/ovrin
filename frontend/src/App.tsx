@@ -30,6 +30,11 @@ type MetricCard = {
   status?: "good" | "warning" | "danger" | "neutral";
 };
 
+type TranscriptDiffToken = {
+  value: string;
+  type: "same" | "reference" | "hypothesis";
+};
+
 type WorkspaceData = {
   datasets: Dataset[];
   testCasesByDataset: Record<number, TestCase[]>;
@@ -109,6 +114,131 @@ function getQualityStatus(label: string | null): MetricCard["status"] {
   return "neutral";
 }
 
+function getSeverityStatus(severity: string | null | undefined): MetricCard["status"] {
+  if (severity === "high" || severity === "critical") return "danger";
+  if (severity === "medium") return "warning";
+  if (severity === "low") return "good";
+  return "neutral";
+}
+
+function splitTranscript(value: string | null | undefined) {
+  return value?.trim().split(/\s+/).filter(Boolean) ?? [];
+}
+
+function getTranscriptDiff(
+  reference: string | null | undefined,
+  hypothesis: string | null | undefined,
+): TranscriptDiffToken[] {
+  const referenceWords = splitTranscript(reference);
+  const hypothesisWords = splitTranscript(hypothesis);
+
+  if (referenceWords.length === 0 && hypothesisWords.length === 0) {
+    return [];
+  }
+
+  const table = Array.from({ length: referenceWords.length + 1 }, () =>
+    Array(hypothesisWords.length + 1).fill(0),
+  );
+
+  for (let i = referenceWords.length - 1; i >= 0; i -= 1) {
+    for (let j = hypothesisWords.length - 1; j >= 0; j -= 1) {
+      if (referenceWords[i].toLowerCase() === hypothesisWords[j].toLowerCase()) {
+        table[i][j] = table[i + 1][j + 1] + 1;
+      } else {
+        table[i][j] = Math.max(table[i + 1][j], table[i][j + 1]);
+      }
+    }
+  }
+
+  const tokens: TranscriptDiffToken[] = [];
+  let i = 0;
+  let j = 0;
+
+  while (i < referenceWords.length || j < hypothesisWords.length) {
+    if (
+      i < referenceWords.length &&
+      j < hypothesisWords.length &&
+      referenceWords[i].toLowerCase() === hypothesisWords[j].toLowerCase()
+    ) {
+      tokens.push({ value: referenceWords[i], type: "same" });
+      i += 1;
+      j += 1;
+      continue;
+    }
+
+    const deleteScore = i < referenceWords.length ? table[i + 1][j] : -1;
+    const insertScore = j < hypothesisWords.length ? table[i][j + 1] : -1;
+
+    if (j < hypothesisWords.length && insertScore >= deleteScore) {
+      tokens.push({ value: hypothesisWords[j], type: "hypothesis" });
+      j += 1;
+    } else if (i < referenceWords.length) {
+      tokens.push({ value: referenceWords[i], type: "reference" });
+      i += 1;
+    }
+  }
+
+  return tokens;
+}
+
+function getErrorCount(text: string, labels: string[]) {
+  for (const label of labels) {
+    const match = text.match(new RegExp(`${label}\\s*[=:]\\s*(\\d+)`, "i"));
+
+    if (match) {
+      return Number(match[1]);
+    }
+  }
+
+  return 0;
+}
+
+function getDebugLabels(
+  debugCase: DebugCase,
+  currentRun: EvaluationRun | null | undefined,
+) {
+  const labels = new Set<string>();
+  const failureType = cleanLabel(debugCase.failure_type);
+  const errorText = currentRun?.error_summary?.toLowerCase() ?? "";
+
+  if (failureType !== "Not available") {
+    labels.add(failureType);
+  }
+
+  if (debugCase.failure_type === "regression") {
+    labels.add("Regression");
+  }
+
+  if ((currentRun?.wer ?? 0) >= 0.15) {
+    labels.add("High WER");
+  }
+
+  const insertionCount = getErrorCount(errorText, ["insertion", "insertions"]);
+  const deletionCount = getErrorCount(errorText, ["deletion", "deletions"]);
+  const substitutionCount = getErrorCount(errorText, [
+    "substitution",
+    "substitutions",
+  ]);
+
+  if (insertionCount > 0) {
+    labels.add("Insertion");
+  }
+
+  if (deletionCount > 0) {
+    labels.add("Deletion");
+  }
+
+  if (substitutionCount > 0) {
+    labels.add("Substitution");
+  }
+
+  if (labels.size === 0) {
+    labels.add("Needs review");
+  }
+
+  return Array.from(labels);
+}
+
 function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [comparison, setComparison] = useState<RunComparison | null>(null);
@@ -145,6 +275,9 @@ function App() {
   const [isComparingRuns, setIsComparingRuns] = useState(false);
   const [debugCaseMessage, setDebugCaseMessage] = useState<string | null>(null);
   const [isCreatingDebugCase, setIsCreatingDebugCase] = useState(false);
+  const [selectedDebugCaseId, setSelectedDebugCaseId] = useState<number | null>(
+    null,
+  );
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -366,6 +499,7 @@ function App() {
     setCurrentRunId("");
     setComparisonMessage(null);
     setDebugCaseMessage(null);
+    setSelectedDebugCaseId(null);
   }
 
   async function handleCreateDataset(event: FormEvent<HTMLFormElement>) {
@@ -667,6 +801,7 @@ function App() {
         };
       });
 
+      setSelectedDebugCaseId(debugCase.id);
       setDebugCaseMessage("Debug case ready.");
     } catch (error) {
       const message =
@@ -840,8 +975,15 @@ function App() {
                         "No summary is available for this debug case yet."}
                     </p>
 
-                    <button className="text-button" type="button">
-                      Open debug case
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => {
+                        setSelectedProjectId(debugCase.project_id);
+                        setSelectedDebugCaseId(debugCase.id);
+                      }}
+                    >
+                      Open debug workspace
                     </button>
                   </article>
                 ))}
@@ -927,6 +1069,307 @@ function App() {
     );
   }
 
+
+  function renderDebugWorkspace() {
+    const allCases = workspaceData?.debugCases ?? [];
+    const openCases = allCases.filter(
+      (debugCase) => debugCase.status !== "closed",
+    );
+    const selectedCase =
+      allCases.find((debugCase) => debugCase.id === selectedDebugCaseId) ??
+      openCases[0] ??
+      allCases[0];
+
+    const baselineRun = workspaceData?.runs.find(
+      (run) => run.id === selectedCase?.baseline_run_id,
+    );
+    const currentRun = workspaceData?.runs.find(
+      (run) => run.id === selectedCase?.current_run_id,
+    );
+    const diffTokens = getTranscriptDiff(
+      currentRun?.reference_transcript,
+      currentRun?.generated_transcript,
+    );
+    const debugLabels = selectedCase
+      ? getDebugLabels(selectedCase, currentRun)
+      : [];
+
+    function renderRunInspectionCard(
+      label: "Baseline run" | "Current run",
+      run: EvaluationRun | undefined,
+    ) {
+      return (
+        <article className="debug-run-card">
+          <p className="eyebrow">{label}</p>
+
+          {run ? (
+            <>
+              <div className="debug-run-card-title">
+                <h4>{run.run_name}</h4>
+                <span className="status-pill neutral">{run.status}</span>
+              </div>
+
+              <p>{run.model_name}</p>
+
+              <dl className="debug-meta-grid">
+                <div>
+                  <dt>WER</dt>
+                  <dd>{formatScore(run.wer)}</dd>
+                </div>
+                <div>
+                  <dt>CER</dt>
+                  <dd>{formatScore(run.cer)}</dd>
+                </div>
+                <div>
+                  <dt>Quality</dt>
+                  <dd>{cleanLabel(run.quality_label)}</dd>
+                </div>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatDate(run.created_at)}</dd>
+                </div>
+              </dl>
+            </>
+          ) : (
+            <div className="empty-state">
+              This debug case does not have a linked {label.toLowerCase()}.
+            </div>
+          )}
+        </article>
+      );
+    }
+
+    return (
+      <>
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Debug workspace</p>
+            <h2>{selectedCase?.title ?? "No debug case selected"}</h2>
+            <p className="page-description">
+              Inspect the failing case, compare linked runs, review transcript
+              differences, and decide the next engineering action.
+            </p>
+          </div>
+
+          <div className="header-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setSelectedDebugCaseId(null)}
+            >
+              Back to project
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={closeWorkspace}
+            >
+              Back to dashboard
+            </button>
+          </div>
+        </header>
+
+        {isWorkspaceLoading && (
+          <section className="state-banner" role="status" aria-live="polite">
+            Loading debug workspace from the backend API...
+          </section>
+        )}
+
+        {workspaceError && (
+          <section className="state-banner error" role="alert">
+            <strong>Unable to load debug workspace.</strong>
+            <span>{workspaceError}</span>
+          </section>
+        )}
+
+        {!workspaceData ? (
+          <section className="empty-state">
+            Project workspace data is not loaded yet.
+          </section>
+        ) : !selectedCase ? (
+          <section className="empty-state">
+            No debug cases exist for this project yet. Create one from a
+            regression comparison first.
+          </section>
+        ) : (
+          <>
+            <section className="debug-summary-grid" aria-label="Debug case metrics">
+              <article className="metric-card">
+                <div className="metric-card-header">
+                  <p>Severity</p>
+                  <span className={`status-pill ${getSeverityStatus(selectedCase.severity)}`}>
+                    {getStatusLabel(getSeverityStatus(selectedCase.severity))}
+                  </span>
+                </div>
+                <strong>{cleanLabel(selectedCase.severity)}</strong>
+                <span>Priority for engineer review</span>
+              </article>
+
+              <article className="metric-card">
+                <div className="metric-card-header">
+                  <p>Failure type</p>
+                  <span className="status-pill danger">Debug</span>
+                </div>
+                <strong>{cleanLabel(selectedCase.failure_type)}</strong>
+                <span>Primary regression category</span>
+              </article>
+
+              <article className="metric-card">
+                <div className="metric-card-header">
+                  <p>Current WER</p>
+                  <span className={`status-pill ${getQualityStatus(currentRun?.quality_label ?? null)}`}>
+                    {cleanLabel(currentRun?.quality_label)}
+                  </span>
+                </div>
+                <strong>{formatScore(currentRun?.wer)}</strong>
+                <span>Word error rate for linked current run</span>
+              </article>
+
+              <article className="metric-card">
+                <div className="metric-card-header">
+                  <p>Status</p>
+                  <span className="status-pill neutral">{selectedCase.status}</span>
+                </div>
+                <strong>{cleanLabel(selectedCase.status)}</strong>
+                <span>Created {formatDate(selectedCase.created_at)}</span>
+              </article>
+            </section>
+
+            <section className="debug-workspace-grid">
+              <aside className="panel debug-case-browser" aria-label="Debug case list">
+                <div className="panel-header">
+                  <div>
+                    <p className="eyebrow">Case list</p>
+                    <h3>Regression queue</h3>
+                  </div>
+                  <span className="count-badge">{openCases.length}</span>
+                </div>
+
+                {allCases.length === 0 ? (
+                  <div className="empty-state">No debug cases found.</div>
+                ) : (
+                  <div className="debug-workspace-case-list">
+                    {allCases.map((debugCase) => (
+                      <button
+                        className={`debug-workspace-case ${
+                          debugCase.id === selectedCase.id ? "active" : ""
+                        }`}
+                        type="button"
+                        key={debugCase.id}
+                        onClick={() => setSelectedDebugCaseId(debugCase.id)}
+                      >
+                        <span className={`severity-badge ${debugCase.severity}`}>
+                          {debugCase.severity}
+                        </span>
+                        <strong>{debugCase.title}</strong>
+                        <span>{cleanLabel(debugCase.failure_type)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </aside>
+
+              <article className="panel debug-case-detail">
+                <div className="panel-header">
+                  <div>
+                    <p className="eyebrow">Case detail</p>
+                    <h3>{selectedCase.title}</h3>
+                  </div>
+                  <span className="status-pill neutral">{selectedCase.status}</span>
+                </div>
+
+                <div className="debug-label-row" aria-label="Debug labels">
+                  {debugLabels.map((label) => (
+                    <span className="debug-label" key={label}>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="insight-box">
+                  <strong>Failure summary</strong>
+                  <p>
+                    {selectedCase.summary ??
+                      "No summary is available for this debug case yet."}
+                  </p>
+                </div>
+
+                <div className="debug-run-grid">
+                  {renderRunInspectionCard("Baseline run", baselineRun)}
+                  {renderRunInspectionCard("Current run", currentRun)}
+                </div>
+
+                <section className="transcript-grid" aria-label="Transcript comparison">
+                  <article className="transcript-panel">
+                    <div className="transcript-panel-header">
+                      <h4>Reference transcript</h4>
+                      <span>Expected</span>
+                    </div>
+                    <p>
+                      {currentRun?.reference_transcript ??
+                        "No reference transcript is available for this linked run."}
+                    </p>
+                  </article>
+
+                  <article className="transcript-panel">
+                    <div className="transcript-panel-header">
+                      <h4>Generated transcript</h4>
+                      <span>Model output</span>
+                    </div>
+                    <p>
+                      {currentRun?.generated_transcript ??
+                        "No generated transcript is available for this linked run."}
+                    </p>
+                  </article>
+                </section>
+
+                <section className="diff-panel" aria-label="Transcript difference view">
+                  <div className="transcript-panel-header">
+                    <h4>Difference view</h4>
+                    <span>Reference-only words are red, generated-only words are yellow.</span>
+                  </div>
+
+                  {diffTokens.length === 0 ? (
+                    <div className="empty-state">
+                      No transcript text is available to generate a difference view.
+                    </div>
+                  ) : (
+                    <div className="diff-token-list">
+                      {diffTokens.map((token, index) => (
+                        <span className={`diff-token ${token.type}`} key={`${token.value}-${index}`}>
+                          {token.value}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="debug-notes-grid">
+                  <div className="insight-box">
+                    <strong>Error summary</strong>
+                    <p>
+                      {currentRun?.error_summary ??
+                        selectedCase.engineer_notes ??
+                        "No error summary is available yet."}
+                    </p>
+                  </div>
+
+                  <div className="insight-box">
+                    <strong>Suggested next action</strong>
+                    <p>
+                      {selectedCase.ai_suggestion ??
+                        "Review the transcript mismatch, check whether the regression is caused by model output changes, audio quality, or reference data issues, then document the finding."}
+                    </p>
+                  </div>
+                </section>
+              </article>
+            </section>
+          </>
+        )}
+      </>
+    );
+  }
+
   function renderWorkspace() {
     const latestComparison = workspaceData?.comparisons[0];
     const openCases =
@@ -953,8 +1396,13 @@ function App() {
             >
               Back to dashboard
             </button>
-            <button className="primary-button" type="button">
-              New run
+            <button
+              className="primary-button"
+              type="button"
+              disabled={openCases.length === 0}
+              onClick={() => setSelectedDebugCaseId(openCases[0]?.id ?? null)}
+            >
+              Open debug workspace
             </button>
           </div>
         </header>
@@ -1535,8 +1983,12 @@ function App() {
       </aside>
 
       <section className="content-area">
-        {selectedProjectId ? renderWorkspace() : renderDashboard()}
-      </section>
+          {selectedProjectId && selectedDebugCaseId
+            ? renderDebugWorkspace()
+            : selectedProjectId
+              ? renderWorkspace()
+              : renderDashboard()}
+        </section>
     </main>
   );
 }

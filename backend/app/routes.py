@@ -6,7 +6,7 @@ from jiwer import process_words
 from sqlalchemy.orm import Session
 
 from app import models, schemas
-from app.asr import TranscriptionError, transcribe_audio
+from app.speech import TranscriptionError, get_asr_provider
 from app.database import get_db
 
 router = APIRouter()
@@ -767,11 +767,14 @@ def transcribe_and_evaluate_test_case_for_run(
         )
 
     try:
-        transcription = transcribe_audio(
+        asr_provider = get_asr_provider()
+        transcription = asr_provider.transcribe(
             audio_path=db_test_case.audio_file_path,
             model_name=db_run.model_name,
         )
     except TranscriptionError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     result_upload_dir = Path("uploads") / "runs" / str(run_id) / "results" / str(test_case_id)

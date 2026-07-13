@@ -6,6 +6,7 @@ from jiwer import process_words
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.asr import TranscriptionError, transcribe_audio
 from app.database import get_db
 
 router = APIRouter()
@@ -307,6 +308,49 @@ def build_structured_transcript_diff(
         "matches": matches,
         "tokens": tokens,
     }
+
+
+def persist_evaluation_result(
+    db: Session,
+    db_run: models.EvaluationRun,
+    db_test_case: models.TestCase,
+    generated_text: str,
+    generated_file_path: str | None = None,
+) -> models.EvaluationResult:
+    reference_text = db_test_case.reference_transcript
+
+    wer_score, cer_score, error_summary = build_error_summary(
+        reference_text=reference_text,
+        generated_text=generated_text,
+    )
+
+    quality_label = build_quality_label(wer_score)
+
+    db_result = models.EvaluationResult(
+        run_id=db_run.id,
+        test_case_id=db_test_case.id,
+        generated_transcript=generated_text,
+        generated_file_path=generated_file_path,
+        wer=wer_score,
+        cer=cer_score,
+        quality_label=quality_label,
+        error_summary=error_summary,
+    )
+
+    db.add(db_result)
+
+    db_run.reference_transcript = reference_text
+    db_run.generated_transcript = generated_text
+    db_run.wer = wer_score
+    db_run.cer = cer_score
+    db_run.quality_label = quality_label
+    db_run.error_summary = error_summary
+    db_run.status = "evaluated"
+
+    db.commit()
+    db.refresh(db_result)
+
+    return db_result
 
 
 def validate_text_file_extension(file_name: str, label: str) -> None:
@@ -675,40 +719,82 @@ async def evaluate_test_case_for_run(
 
     reference_text = db_test_case.reference_transcript
 
-    wer_score, cer_score, error_summary = build_error_summary(
-        reference_text=reference_text,
-        generated_text=generated_text,
-    )
-
-    quality_label = build_quality_label(wer_score)
-
     generated_path.write_text(generated_text, encoding="utf-8")
 
-    db_result = models.EvaluationResult(
-        run_id=run_id,
-        test_case_id=test_case_id,
-        generated_transcript=generated_text,
+    return persist_evaluation_result(
+        db=db,
+        db_run=db_run,
+        db_test_case=db_test_case,
+        generated_text=generated_text,
         generated_file_path=str(generated_path),
-        wer=wer_score,
-        cer=cer_score,
-        quality_label=quality_label,
-        error_summary=error_summary,
     )
 
-    db.add(db_result)
 
-    db_run.generated_transcript = generated_text
-    db_run.reference_transcript = reference_text
-    db_run.wer = wer_score
-    db_run.cer = cer_score
-    db_run.quality_label = quality_label
-    db_run.error_summary = error_summary
-    db_run.status = "evaluated"
+@router.post(
+    "/runs/{run_id}/test-cases/{test_case_id}/transcribe-and-evaluate",
+    response_model=schemas.TranscribeAndEvaluateRead,
+)
+def transcribe_and_evaluate_test_case_for_run(
+    run_id: int,
+    test_case_id: int,
+    db: Session = Depends(get_db),
+):
+    db_run = db.query(models.EvaluationRun).filter(models.EvaluationRun.id == run_id).first()
 
-    db.commit()
-    db.refresh(db_result)
+    if db_run is None:
+        raise HTTPException(status_code=404, detail="Evaluation run not found")
 
-    return db_result
+    db_test_case = db.query(models.TestCase).filter(models.TestCase.id == test_case_id).first()
+
+    if db_test_case is None:
+        raise HTTPException(status_code=404, detail="Test case not found")
+
+    db_dataset = db.query(models.Dataset).filter(models.Dataset.id == db_test_case.dataset_id).first()
+
+    if db_dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if db_dataset.project_id != db_run.project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Test case dataset does not belong to the same project as this run",
+        )
+
+    if not db_test_case.audio_file_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Test case does not have an audio file path",
+        )
+
+    try:
+        transcription = transcribe_audio(
+            audio_path=db_test_case.audio_file_path,
+            model_name=db_run.model_name,
+        )
+    except TranscriptionError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    result_upload_dir = Path("uploads") / "runs" / str(run_id) / "results" / str(test_case_id)
+    generated_dir = result_upload_dir / "generated"
+    generated_dir.mkdir(parents=True, exist_ok=True)
+
+    generated_path = generated_dir / "generated-by-asr.txt"
+    generated_path.write_text(transcription.transcript, encoding="utf-8")
+
+    db_result = persist_evaluation_result(
+        db=db,
+        db_run=db_run,
+        db_test_case=db_test_case,
+        generated_text=transcription.transcript,
+        generated_file_path=str(generated_path),
+    )
+
+    return {
+        "result": db_result,
+        "provider": transcription.provider,
+        "model_name": transcription.model_name,
+        "generated_transcript": transcription.transcript,
+    }
 
 
 @router.get(

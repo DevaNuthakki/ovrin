@@ -180,3 +180,10 @@ class TranscriptDiffRead(BaseModel):
     deletions: int
     matches: int
     tokens: list[TranscriptDiffTokenRead]
+
+
+class TranscribeAndEvaluateRead(BaseModel):
+    result: EvaluationResultRead
+    provider: str
+    model_name: str
+    generated_transcript: str

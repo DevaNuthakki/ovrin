@@ -97,6 +97,13 @@ export type DebugCaseDetail = {
   current_result: EvaluationResult | null;
 };
 
+export type TranscribeAndEvaluateResponse = {
+  result: EvaluationResult;
+  provider: string;
+  model_name: string;
+  generated_transcript: string;
+};
+
 export type StructuredTranscriptDiffToken = {
   operation: "match" | "insertion" | "deletion" | "substitution";
   reference_word: string | null;
@@ -246,5 +253,18 @@ export async function getDebugCaseDetails(debugCaseId: number) {
 export async function getResultTranscriptDiff(resultId: number) {
   return fetchJson<StructuredTranscriptDiff>(
     `/results/${resultId}/transcript-diff`,
+  );
+}
+
+
+export async function transcribeAndEvaluateTestCaseForRun(
+  runId: number,
+  testCaseId: number,
+) {
+  return fetchJson<TranscribeAndEvaluateResponse>(
+    `/runs/${runId}/test-cases/${testCaseId}/transcribe-and-evaluate`,
+    {
+      method: "POST",
+    },
   );
 }

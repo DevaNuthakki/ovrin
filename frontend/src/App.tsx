@@ -17,6 +17,7 @@ import {
   getProjectRuns,
   getProjects,
   getResultTranscriptDiff,
+  transcribeAndEvaluateTestCaseForRun,
   type Dataset,
   type DebugCase,
   type DebugCaseDetail,
@@ -281,6 +282,8 @@ function App() {
   const [generatedFile, setGeneratedFile] = useState<File | null>(null);
   const [evaluationMessage, setEvaluationMessage] = useState<string | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [transcriptionMessage, setTranscriptionMessage] = useState<string | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [baselineRunId, setBaselineRunId] = useState<number | "">("");
   const [currentRunId, setCurrentRunId] = useState<number | "">("");
   const [comparisonMessage, setComparisonMessage] = useState<string | null>(null);
@@ -579,6 +582,7 @@ function App() {
     setEvaluationTestCaseId("");
     setGeneratedFile(null);
     setEvaluationMessage(null);
+    setTranscriptionMessage(null);
     setBaselineRunId("");
     setCurrentRunId("");
     setComparisonMessage(null);
@@ -814,6 +818,41 @@ function App() {
       setEvaluationMessage(message);
     } finally {
       setIsEvaluating(false);
+    }
+  }
+
+  async function handleTranscribeAndEvaluate() {
+    if (!selectedProjectId) {
+      setTranscriptionMessage("Open a project workspace first.");
+      return;
+    }
+
+    if (!evaluationRunId || !evaluationTestCaseId) {
+      setTranscriptionMessage("Select a run and test case first.");
+      return;
+    }
+
+    try {
+      setIsTranscribing(true);
+      setTranscriptionMessage(null);
+
+      const response = await transcribeAndEvaluateTestCaseForRun(
+        evaluationRunId,
+        evaluationTestCaseId,
+      );
+
+      setTranscriptionMessage(
+        `ASR transcript evaluated with ${response.provider}.`,
+      );
+
+      // Workspace refresh will happen on the next dashboard/project reload.
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to transcribe audio.";
+
+      setTranscriptionMessage(message);
+    } finally {
+      setIsTranscribing(false);
     }
   }
 
@@ -1924,7 +1963,17 @@ function App() {
                       {isEvaluating ? "Evaluating..." : "Evaluate test case"}
                     </button>
 
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={isTranscribing || isEvaluating}
+                      onClick={handleTranscribeAndEvaluate}
+                    >
+                      {isTranscribing ? "Transcribing..." : "Transcribe + evaluate"}
+                    </button>
+
                     {evaluationMessage && <span>{evaluationMessage}</span>}
+                    {transcriptionMessage && <span>{transcriptionMessage}</span>}
                   </div>
                 </form>
               )}

@@ -15,6 +15,7 @@ import {
   getProjectDatasets,
   getProjectDebugCases,
   getProjectRuns,
+  getProjectWorkflowSummary,
   getProjects,
   getResultTranscriptDiff,
   transcribeAndEvaluateTestCaseForRun,
@@ -24,6 +25,7 @@ import {
   type EvaluationResult,
   type EvaluationRun,
   type Project,
+  type ProjectWorkflowSummary,
   type RunComparison,
   type StructuredTranscriptDiff,
   type TestCase,
@@ -54,6 +56,7 @@ type WorkspaceData = {
   runs: EvaluationRun[];
   comparisons: RunComparison[];
   debugCases: DebugCase[];
+  workflowSummary: ProjectWorkflowSummary;
 };
 
 function formatMetric(value: number | null | undefined) {
@@ -348,14 +351,21 @@ function App() {
         setIsWorkspaceLoading(true);
         setWorkspaceError(null);
 
-        const [project, datasets, runs, comparisons, projectDebugCases] =
-          await Promise.all([
-            getProject(projectId),
-            getProjectDatasets(projectId),
-            getProjectRuns(projectId),
-            getProjectComparisons(projectId),
-            getProjectDebugCases(projectId),
-          ]);
+        const [
+          project,
+          datasets,
+          runs,
+          comparisons,
+          projectDebugCases,
+          workflowSummary,
+        ] = await Promise.all([
+          getProject(projectId),
+          getProjectDatasets(projectId),
+          getProjectRuns(projectId),
+          getProjectComparisons(projectId),
+          getProjectDebugCases(projectId),
+          getProjectWorkflowSummary(projectId),
+        ]);
 
         const testCaseEntries = await Promise.all(
           datasets.map(async (dataset) => {
@@ -370,6 +380,7 @@ function App() {
           runs,
           comparisons,
           debugCases: projectDebugCases,
+          workflowSummary,
           testCasesByDataset: Object.fromEntries(testCaseEntries),
         });
 
@@ -516,40 +527,43 @@ function App() {
   const workspaceMetrics: MetricCard[] = useMemo(() => {
     if (!workspaceData) return [];
 
-    const openCases = workspaceData.debugCases.filter(
-      (debugCase) => debugCase.status !== "closed",
-    );
-
-    const evaluatedRuns = workspaceData.runs.filter(
-      (run) => run.status === "evaluated",
-    );
-
-    const latestComparison = workspaceData.comparisons[0];
+    const summary = workspaceData.workflowSummary;
+    const latestComparison =
+      summary.latest_comparison ?? workspaceData.comparisons[0];
 
     return [
       {
         label: "Datasets",
-        value: String(workspaceData.datasets.length),
+        value: String(summary.dataset_count),
         helper: "Dataset groups inside this project",
-        status: "neutral",
+        status: summary.dataset_count > 0 ? "good" : "neutral",
       },
       {
         label: "Test cases",
-        value: String(workspaceTestCases.length),
+        value: String(summary.test_case_count),
         helper: "Reference samples ready for evaluation",
-        status: workspaceTestCases.length > 0 ? "good" : "neutral",
+        status: summary.test_case_count > 0 ? "good" : "neutral",
       },
       {
         label: "Evaluated runs",
-        value: String(evaluatedRuns.length),
+        value: `${summary.evaluated_run_count}/${summary.run_count}`,
         helper: "Runs with computed WER/CER results",
-        status: evaluatedRuns.length > 0 ? "good" : "neutral",
+        status: summary.evaluated_run_count > 0 ? "good" : "neutral",
+      },
+      {
+        label: "Results",
+        value: String(summary.result_count),
+        helper: "Stored test-case evaluation results",
+        status: summary.result_count > 0 ? "good" : "neutral",
       },
       {
         label: "Open debug cases",
-        value: String(openCases.length),
-        helper: openCases.length > 0 ? "Needs engineer review" : "No open cases",
-        status: openCases.length > 0 ? "danger" : "good",
+        value: String(summary.open_debug_case_count),
+        helper:
+          summary.open_debug_case_count > 0
+            ? "Needs engineer review"
+            : "No open cases",
+        status: summary.open_debug_case_count > 0 ? "danger" : "good",
       },
       {
         label: "Latest WER delta",
@@ -560,7 +574,7 @@ function App() {
         status: getMetricStatus(latestComparison?.wer_delta),
       },
     ];
-  }, [workspaceData, workspaceTestCases.length]);
+  }, [workspaceData]);
 
   function closeWorkspace() {
     setSelectedProjectId(null);

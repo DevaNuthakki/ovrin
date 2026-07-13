@@ -123,6 +123,22 @@ class RunComparisonRead(BaseModel):
         from_attributes = True
 
 
+class ProjectWorkflowSummaryRead(BaseModel):
+    project_id: int
+
+    dataset_count: int
+    test_case_count: int
+    run_count: int
+    evaluated_run_count: int
+    result_count: int
+    comparison_count: int
+    debug_case_count: int
+    open_debug_case_count: int
+
+    latest_run: Optional[EvaluationRunRead] = None
+    latest_comparison: Optional[RunComparisonRead] = None
+
+
 class DebugCaseCreate(BaseModel):
     title: str
     severity: Optional[str] = "medium"

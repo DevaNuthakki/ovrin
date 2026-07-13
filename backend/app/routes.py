@@ -430,6 +430,101 @@ def get_project(
     return db_project
 
 
+@router.get(
+    "/projects/{project_id}/workflow-summary",
+    response_model=schemas.ProjectWorkflowSummaryRead,
+)
+def get_project_workflow_summary(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    dataset_count = (
+        db.query(models.Dataset)
+        .filter(models.Dataset.project_id == project_id)
+        .count()
+    )
+
+    test_case_count = (
+        db.query(models.TestCase)
+        .join(models.Dataset)
+        .filter(models.Dataset.project_id == project_id)
+        .count()
+    )
+
+    run_query = db.query(models.EvaluationRun).filter(
+        models.EvaluationRun.project_id == project_id
+    )
+
+    run_count = run_query.count()
+    evaluated_run_count = run_query.filter(
+        models.EvaluationRun.status == "evaluated"
+    ).count()
+
+    latest_run = (
+        db.query(models.EvaluationRun)
+        .filter(models.EvaluationRun.project_id == project_id)
+        .order_by(models.EvaluationRun.created_at.desc())
+        .first()
+    )
+
+    result_count = (
+        db.query(models.EvaluationResult)
+        .join(models.EvaluationRun)
+        .filter(models.EvaluationRun.project_id == project_id)
+        .count()
+    )
+
+    project_run_ids = [
+        run.id
+        for run in db.query(models.EvaluationRun.id)
+        .filter(models.EvaluationRun.project_id == project_id)
+        .all()
+    ]
+
+    if project_run_ids:
+        comparison_query = (
+            db.query(models.RunComparison)
+            .filter(models.RunComparison.baseline_run_id.in_(project_run_ids))
+            .filter(models.RunComparison.current_run_id.in_(project_run_ids))
+        )
+
+        comparison_count = comparison_query.count()
+        latest_comparison = comparison_query.order_by(
+            models.RunComparison.created_at.desc()
+        ).first()
+    else:
+        comparison_count = 0
+        latest_comparison = None
+
+    debug_case_query = db.query(models.DebugCase).filter(
+        models.DebugCase.project_id == project_id
+    )
+
+    debug_case_count = debug_case_query.count()
+    open_debug_case_count = debug_case_query.filter(
+        models.DebugCase.status != "closed"
+    ).count()
+
+    return {
+        "project_id": project_id,
+        "dataset_count": dataset_count,
+        "test_case_count": test_case_count,
+        "run_count": run_count,
+        "evaluated_run_count": evaluated_run_count,
+        "result_count": result_count,
+        "comparison_count": comparison_count,
+        "debug_case_count": debug_case_count,
+        "open_debug_case_count": open_debug_case_count,
+        "latest_run": latest_run,
+        "latest_comparison": latest_comparison,
+    }
+
+
 @router.post(
     "/projects/{project_id}/datasets",
     response_model=schemas.DatasetRead,

@@ -70,6 +70,21 @@ export type RunComparison = {
   created_at: string;
 };
 
+
+export type ProjectWorkflowSummary = {
+  project_id: number;
+  dataset_count: number;
+  test_case_count: number;
+  run_count: number;
+  evaluated_run_count: number;
+  result_count: number;
+  comparison_count: number;
+  debug_case_count: number;
+  open_debug_case_count: number;
+  latest_run: EvaluationRun | null;
+  latest_comparison: RunComparison | null;
+};
+
 export type DebugCase = {
   id: number;
   project_id: number;
@@ -141,6 +156,13 @@ export async function getProjects() {
 
 export async function getProject(projectId: number) {
   return fetchJson<Project>(`/projects/${projectId}`);
+}
+
+
+export async function getProjectWorkflowSummary(projectId: number) {
+  return fetchJson<ProjectWorkflowSummary>(
+    `/projects/${projectId}/workflow-summary`,
+  );
 }
 
 export async function createProjectDataset(

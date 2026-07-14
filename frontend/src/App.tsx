@@ -1747,21 +1747,27 @@ function App() {
                   </div>
                 ) : (
                   <div className="item-list">
-                    {workspaceData.datasets.map((dataset) => (
-                      <article className="list-card" key={dataset.id}>
-                        <div>
-                          <p className="eyebrow">Dataset #{dataset.id}</p>
-                          <h4>{dataset.name}</h4>
-                        </div>
-                        <p>
-                          {dataset.description ??
-                            "No dataset description provided yet."}
-                        </p>
-                        <span>
-                          {workspaceData.testCasesByDataset[dataset.id]?.length ?? 0} test cases
-                        </span>
-                      </article>
-                    ))}
+                    {workspaceData.datasets.map((dataset) => {
+                      const testCaseCount =
+                        workspaceData.testCasesByDataset[dataset.id]?.length ?? 0;
+
+                      return (
+                        <article className="list-card dataset-card" key={dataset.id}>
+                          <div>
+                            <p className="eyebrow">Dataset #{dataset.id}</p>
+                            <h4>{dataset.name}</h4>
+                          </div>
+                          <p>
+                            {dataset.description ??
+                              "No dataset description provided yet."}
+                          </p>
+                          <div className="list-card-meta-row">
+                            <span>{testCaseCount} test cases</span>
+                            <span>Created {formatDate(dataset.created_at)}</span>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </article>
@@ -1848,21 +1854,44 @@ function App() {
 
                 {workspaceTestCases.length === 0 ? (
                   <div className="empty-state">
-                    No test cases yet. Upload audio and reference transcript files
-                    into a dataset.
+                    No test cases yet. Upload one audio file and one reference
+                    transcript so Ovrin can evaluate ASR output against expected text.
                   </div>
                 ) : (
                   <div className="item-list">
-                    {workspaceTestCases.slice(0, 5).map((testCase) => (
-                      <article className="list-card" key={testCase.id}>
+                    {workspaceTestCases.map((testCase) => (
+                      <article className="list-card test-case-card" key={testCase.id}>
                         <div>
                           <p className="eyebrow">
                             {getDatasetName(testCase.dataset_id)}
                           </p>
                           <h4>{testCase.title}</h4>
                         </div>
-                        <p>{testCase.reference_transcript.slice(0, 140)}...</p>
-                        <span>Created {formatDate(testCase.created_at)}</span>
+
+                        <div className="test-case-artifacts">
+                          <span
+                            className={`artifact-pill ${
+                              testCase.audio_file_path ? "available" : "missing"
+                            }`}
+                          >
+                            Audio {testCase.audio_file_path ? "available" : "missing"}
+                          </span>
+                          <span
+                            className={`artifact-pill ${
+                              testCase.reference_file_path ? "available" : "missing"
+                            }`}
+                          >
+                            Reference{" "}
+                            {testCase.reference_file_path ? "available" : "missing"}
+                          </span>
+                        </div>
+
+                        <p>{testCase.reference_transcript.slice(0, 180)}...</p>
+
+                        <div className="list-card-meta-row">
+                          <span>Created {formatDate(testCase.created_at)}</span>
+                          <span>Test case #{testCase.id}</span>
+                        </div>
                       </article>
                     ))}
                   </div>

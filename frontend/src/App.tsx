@@ -2105,9 +2105,20 @@ function App() {
                   </span>
                 </div>
 
+                <div className="workflow-guidance comparison-guidance">
+                  <strong>Comparison workflow</strong>
+                  <div className="workflow-step-list">
+                    <span>1. Pick the trusted baseline run</span>
+                    <span>2. Pick the current run to check</span>
+                    <span>3. Create a debug case only if regression is detected</span>
+                  </div>
+                </div>
+
                 {workspaceData.runs.filter((run) => run.status === "evaluated").length < 2 ? (
                   <div className="empty-state spaced-state">
                     Evaluate at least two runs before creating a comparison.
+                    Use one run as the baseline and another run as the current
+                    candidate.
                   </div>
                 ) : (
                   <form
@@ -2187,12 +2198,23 @@ function App() {
                       </div>
                     </dl>
 
+                    <div className="delta-legend">
+                      <span>Positive delta = current run is worse</span>
+                      <span>Negative delta = current run improved</span>
+                    </div>
+
                     <div className="insight-box">
                       <strong>{cleanLabel(latestComparison.comparison_status)}</strong>
                       <p>
                         {latestComparison.summary ??
                           "No comparison summary is available yet."}
                       </p>
+                    </div>
+
+                    <div className="debug-case-guidance">
+                      {latestComparison.comparison_status === "regression"
+                        ? "Regression detected. Create a debug case so an engineer can inspect the failing sample."
+                        : "Debug case creation is enabled only when the comparison detects a regression."}
                     </div>
 
                     <div className="form-actions comparison-actions">
@@ -2250,6 +2272,17 @@ function App() {
                         </div>
 
                         <h4>{debugCase.title}</h4>
+
+                        <div className="debug-case-meta-row">
+                          <span>{cleanLabel(debugCase.failure_type)}</span>
+                          {debugCase.baseline_run_id && (
+                            <span>Baseline #{debugCase.baseline_run_id}</span>
+                          )}
+                          {debugCase.current_run_id && (
+                            <span>Current #{debugCase.current_run_id}</span>
+                          )}
+                        </div>
+
                         <p>
                           {debugCase.summary ??
                             "No summary is available for this debug case yet."}
@@ -2260,7 +2293,7 @@ function App() {
                             type="button"
                             onClick={() => setSelectedDebugCaseId(debugCase.id)}
                           >
-                            Open debug case
+                            Open in debug workspace
                           </button>
                       </article>
                     ))}

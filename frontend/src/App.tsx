@@ -1908,6 +1908,15 @@ function App() {
                 <span className="count-badge">{workspaceData.runs.length}</span>
               </div>
 
+              <div className="workflow-guidance">
+                <strong>Run workflow</strong>
+                <div className="workflow-step-list">
+                  <span>1. Create a baseline run</span>
+                  <span>2. Evaluate one or more test cases</span>
+                  <span>3. Compare against a current run</span>
+                </div>
+              </div>
+
               <form className="dataset-form run-form" onSubmit={handleCreateRun}>
                 <div className="form-grid run-form-grid">
                   <label className="form-field">
@@ -1944,7 +1953,9 @@ function App() {
 
               {workspaceData.runs.length === 0 || workspaceTestCases.length === 0 ? (
                 <div className="empty-state spaced-state">
-                  Create at least one run and one test case before evaluating.
+                  Create at least one run and upload at least one test case before
+                  evaluating ASR output. A run represents one model, provider, or
+                  configuration you want to test.
                 </div>
               ) : (
                 <form
@@ -1993,8 +2004,28 @@ function App() {
                           setGeneratedFile(event.target.files?.[0] ?? null)
                         }
                       />
-                      <small>Upload the model transcript as a UTF-8 .txt file.</small>
+                      <small>
+                        Manual path: upload a UTF-8 .txt transcript produced by
+                        another ASR model or provider.
+                      </small>
                     </label>
+                  </div>
+
+                  <div className="evaluation-mode-grid">
+                    <div className="evaluation-mode-card">
+                      <strong>Manual evaluate</strong>
+                      <span>
+                        Use when you already have a generated transcript file and
+                        want Ovrin to calculate WER/CER.
+                      </span>
+                    </div>
+                    <div className="evaluation-mode-card">
+                      <strong>Transcribe + evaluate</strong>
+                      <span>
+                        Use the configured local ASR provider, then evaluate the
+                        generated transcript against the reference.
+                      </span>
+                    </div>
                   </div>
 
                   <div className="form-actions">
@@ -2034,10 +2065,18 @@ function App() {
                         <p className="eyebrow">Run #{run.id}</p>
                         <h4>{run.run_name}</h4>
                         <span>{run.model_name}</span>
+                        <div className="run-row-meta">
+                          <span>Created {formatDate(run.created_at)}</span>
+                          <span>
+                            {run.status === "evaluated"
+                              ? "Ready for comparison"
+                              : "Needs evaluation"}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="run-metrics">
-                        <span className="status-pill neutral">{run.status}</span>
+                        <span className="status-pill neutral">{cleanLabel(run.status)}</span>
                         <span
                           className={`status-pill ${getQualityStatus(
                             run.quality_label,

@@ -1107,3 +1107,59 @@ button:disabled {
   color: #fca5a5;
   border-color: rgba(248, 113, 113, 0.28);
 }
+
+
+.workflow-guidance {
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 1rem;
+  background: rgba(8, 47, 73, 0.32);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.workflow-guidance strong,
+.evaluation-mode-card strong {
+  color: #f8fafc;
+}
+
+.workflow-step-list,
+.evaluation-mode-grid,
+.run-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.workflow-step-list {
+  margin-top: 0.75rem;
+}
+
+.workflow-step-list span,
+.run-row-meta span {
+  color: #94a3b8;
+  font-size: 0.86rem;
+}
+
+.evaluation-mode-grid {
+  margin: 1rem 0;
+}
+
+.evaluation-mode-card {
+  flex: 1 1 240px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.44);
+  padding: 0.9rem;
+}
+
+.evaluation-mode-card span {
+  display: block;
+  color: #94a3b8;
+  margin-top: 0.35rem;
+  line-height: 1.5;
+}
+
+.run-row-meta {
+  margin-top: 0.5rem;
+}

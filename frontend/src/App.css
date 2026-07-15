@@ -1163,3 +1163,42 @@ button:disabled {
 .run-row-meta {
   margin-top: 0.5rem;
 }
+
+
+.comparison-guidance {
+  margin-top: 1rem;
+}
+
+.delta-legend,
+.debug-case-guidance,
+.debug-case-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.delta-legend {
+  margin: 0.85rem 0;
+}
+
+.delta-legend span,
+.debug-case-meta-row span {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.3rem 0.65rem;
+}
+
+.debug-case-guidance {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-top: 0.9rem;
+}
+
+.debug-case-meta-row {
+  margin: 0.55rem 0;
+}

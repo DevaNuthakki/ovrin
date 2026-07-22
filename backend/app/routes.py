@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -6,8 +7,12 @@ from jiwer import process_words
 from sqlalchemy.orm import Session
 
 from app import models, schemas
-from app.speech import TranscriptionError, get_asr_provider
 from app.database import get_db
+from app.release_safety import (
+    ReleasePolicyThresholds,
+    evaluate_release_safety,
+)
+from app.speech import TranscriptionError, get_asr_provider
 
 router = APIRouter()
 
@@ -104,6 +109,70 @@ def get_optional_by_id(db: Session, model, object_id: int | None):
 
     return db.query(model).filter(model.id == object_id).first()
 
+
+
+
+def build_release_policy_thresholds(
+    policy: models.ReleasePolicy,
+) -> ReleasePolicyThresholds:
+    return ReleasePolicyThresholds(
+        warn_current_wer=policy.warn_current_wer,
+        fail_current_wer=policy.fail_current_wer,
+        warn_current_cer=policy.warn_current_cer,
+        fail_current_cer=policy.fail_current_cer,
+        warn_wer_delta=policy.warn_wer_delta,
+        fail_wer_delta=policy.fail_wer_delta,
+        warn_cer_delta=policy.warn_cer_delta,
+        fail_cer_delta=policy.fail_cer_delta,
+    )
+
+
+def build_release_policy_snapshot(
+    policy: models.ReleasePolicy,
+) -> dict[str, object]:
+    return {
+        "policy_id": policy.id,
+        "name": policy.name,
+        "version": policy.version,
+        **asdict(build_release_policy_thresholds(policy)),
+    }
+
+
+def find_active_release_policy(
+    db: Session,
+    project_id: int,
+) -> models.ReleasePolicy | None:
+    return (
+        db.query(models.ReleasePolicy)
+        .filter(models.ReleasePolicy.project_id == project_id)
+        .filter(models.ReleasePolicy.is_active.is_(True))
+        .order_by(
+            models.ReleasePolicy.version.desc(),
+            models.ReleasePolicy.created_at.desc(),
+        )
+        .first()
+    )
+
+
+def create_default_release_policy(
+    db: Session,
+    project_id: int,
+) -> models.ReleasePolicy:
+    default_thresholds = ReleasePolicyThresholds()
+
+    db_policy = models.ReleasePolicy(
+        project_id=project_id,
+        name="Default release policy",
+        version=1,
+        is_active=True,
+        **asdict(default_thresholds),
+    )
+
+    db.add(db_policy)
+    db.commit()
+    db.refresh(db_policy)
+
+    return db_policy
 
 def find_worst_debug_result_pair(
     db: Session,
@@ -1119,6 +1188,242 @@ def list_project_comparisons(
         .order_by(models.RunComparison.created_at.desc())
         .all()
     )
+
+
+@router.get(
+    "/projects/{project_id}/release-policy",
+    response_model=schemas.ReleasePolicyRead,
+)
+def get_release_policy(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    db_project = (
+        db.query(models.Project)
+        .filter(models.Project.id == project_id)
+        .first()
+    )
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    db_policy = find_active_release_policy(
+        db=db,
+        project_id=project_id,
+    )
+
+    if db_policy is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Active release policy not found",
+        )
+
+    return db_policy
+
+
+@router.put(
+    "/projects/{project_id}/release-policy",
+    response_model=schemas.ReleasePolicyRead,
+)
+def upsert_release_policy(
+    project_id: int,
+    policy_update: schemas.ReleasePolicyUpsert,
+    db: Session = Depends(get_db),
+):
+    db_project = (
+        db.query(models.Project)
+        .filter(models.Project.id == project_id)
+        .first()
+    )
+
+    if db_project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    db_policy = find_active_release_policy(
+        db=db,
+        project_id=project_id,
+    )
+    policy_values = policy_update.model_dump()
+
+    if db_policy is None:
+        db_policy = models.ReleasePolicy(
+            project_id=project_id,
+            version=1,
+            is_active=True,
+            **policy_values,
+        )
+        db.add(db_policy)
+    else:
+        for field_name, field_value in policy_values.items():
+            setattr(db_policy, field_name, field_value)
+
+        db_policy.version += 1
+        db_policy.is_active = True
+
+    db.commit()
+    db.refresh(db_policy)
+
+    return db_policy
+
+
+@router.post(
+    "/comparisons/{comparison_id}/release-report",
+    response_model=schemas.ReleaseReportRead,
+)
+def create_release_report(
+    comparison_id: int,
+    db: Session = Depends(get_db),
+):
+    db_comparison = (
+        db.query(models.RunComparison)
+        .filter(models.RunComparison.id == comparison_id)
+        .first()
+    )
+
+    if db_comparison is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Run comparison not found",
+        )
+
+    baseline_run = (
+        db.query(models.EvaluationRun)
+        .filter(
+            models.EvaluationRun.id
+            == db_comparison.baseline_run_id
+        )
+        .first()
+    )
+    current_run = (
+        db.query(models.EvaluationRun)
+        .filter(
+            models.EvaluationRun.id
+            == db_comparison.current_run_id
+        )
+        .first()
+    )
+
+    if baseline_run is None or current_run is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Comparison contains a missing evaluation run",
+        )
+
+    if baseline_run.project_id != current_run.project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Comparison runs must belong to the same project",
+        )
+
+    required_metrics = {
+        "current_average_wer": db_comparison.current_average_wer,
+        "current_average_cer": db_comparison.current_average_cer,
+        "wer_delta": db_comparison.wer_delta,
+        "cer_delta": db_comparison.cer_delta,
+    }
+    missing_metrics = [
+        metric_name
+        for metric_name, metric_value in required_metrics.items()
+        if metric_value is None
+    ]
+
+    if missing_metrics:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Comparison is missing required release metrics: "
+                + ", ".join(missing_metrics)
+            ),
+        )
+
+    project_id = baseline_run.project_id
+    db_policy = find_active_release_policy(
+        db=db,
+        project_id=project_id,
+    )
+
+    if db_policy is None:
+        db_policy = create_default_release_policy(
+            db=db,
+            project_id=project_id,
+        )
+
+    release_result = evaluate_release_safety(
+        current_average_wer=float(
+            db_comparison.current_average_wer
+        ),
+        current_average_cer=float(
+            db_comparison.current_average_cer
+        ),
+        wer_delta=float(db_comparison.wer_delta),
+        cer_delta=float(db_comparison.cer_delta),
+        policy=build_release_policy_thresholds(db_policy),
+    )
+
+    report_values = {
+        "project_id": project_id,
+        "comparison_id": db_comparison.id,
+        "policy_id": db_policy.id,
+        "status": release_result.status,
+        "severity": release_result.severity,
+        "headline": release_result.headline,
+        "summary": release_result.summary,
+        "recommendation": release_result.recommendation,
+        "policy_snapshot": build_release_policy_snapshot(
+            db_policy
+        ),
+        "checks": [
+            asdict(check)
+            for check in release_result.checks
+        ],
+    }
+
+    db_report = (
+        db.query(models.ReleaseReport)
+        .filter(
+            models.ReleaseReport.comparison_id
+            == db_comparison.id
+        )
+        .first()
+    )
+
+    if db_report is None:
+        db_report = models.ReleaseReport(**report_values)
+        db.add(db_report)
+    else:
+        for field_name, field_value in report_values.items():
+            setattr(db_report, field_name, field_value)
+
+    db.commit()
+    db.refresh(db_report)
+
+    return db_report
+
+
+@router.get(
+    "/comparisons/{comparison_id}/release-report",
+    response_model=schemas.ReleaseReportRead,
+)
+def get_release_report(
+    comparison_id: int,
+    db: Session = Depends(get_db),
+):
+    db_report = (
+        db.query(models.ReleaseReport)
+        .filter(
+            models.ReleaseReport.comparison_id
+            == comparison_id
+        )
+        .first()
+    )
+
+    if db_report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Release report not found",
+        )
+
+    return db_report
 
 
 @router.post(

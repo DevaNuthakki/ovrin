@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -28,6 +28,18 @@ class Project(Base):
 
     debug_cases = relationship(
         "DebugCase",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    release_policies = relationship(
+        "ReleasePolicy",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    release_reports = relationship(
+        "ReleaseReport",
         back_populates="project",
         cascade="all, delete-orphan",
     )
@@ -149,6 +161,13 @@ class RunComparison(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    release_report = relationship(
+        "ReleaseReport",
+        back_populates="comparison",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
 
 class DebugCase(Base):
     __tablename__ = "debug_cases"
@@ -175,3 +194,84 @@ class DebugCase(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="debug_cases")
+
+
+class ReleasePolicy(Base):
+    __tablename__ = "release_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+
+    name = Column(String(200), nullable=False, default="Default release policy")
+    version = Column(Integer, nullable=False, default=1)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    warn_current_wer = Column(Float, nullable=False, default=0.15)
+    fail_current_wer = Column(Float, nullable=False, default=0.20)
+
+    warn_current_cer = Column(Float, nullable=False, default=0.08)
+    fail_current_cer = Column(Float, nullable=False, default=0.12)
+
+    warn_wer_delta = Column(Float, nullable=False, default=0.01)
+    fail_wer_delta = Column(Float, nullable=False, default=0.03)
+
+    warn_cer_delta = Column(Float, nullable=False, default=0.005)
+    fail_cer_delta = Column(Float, nullable=False, default=0.02)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    project = relationship("Project", back_populates="release_policies")
+    release_reports = relationship(
+        "ReleaseReport",
+        back_populates="policy",
+    )
+
+
+class ReleaseReport(Base):
+    __tablename__ = "release_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    comparison_id = Column(
+        Integer,
+        ForeignKey("run_comparisons.id"),
+        nullable=False,
+        unique=True,
+    )
+    policy_id = Column(
+        Integer,
+        ForeignKey("release_policies.id"),
+        nullable=True,
+    )
+
+    status = Column(String(50), nullable=False)
+    severity = Column(String(50), nullable=False)
+
+    headline = Column(String(300), nullable=False)
+    summary = Column(Text, nullable=False)
+    recommendation = Column(Text, nullable=False)
+
+    policy_snapshot = Column(JSON, nullable=False)
+    checks = Column(JSON, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    project = relationship("Project", back_populates="release_reports")
+    comparison = relationship(
+        "RunComparison",
+        back_populates="release_report",
+    )
+    policy = relationship(
+        "ReleasePolicy",
+        back_populates="release_reports",
+    )

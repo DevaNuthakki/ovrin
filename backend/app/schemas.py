@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
+
+from app.release_safety import ReleasePolicyThresholds
 
 
 class ProjectCreate(BaseModel):
@@ -203,3 +205,86 @@ class TranscribeAndEvaluateRead(BaseModel):
     provider: str
     model_name: str
     generated_transcript: str
+
+
+ReleaseStatus = Literal["pass", "warn", "fail"]
+ReleaseSeverity = Literal["none", "low", "medium", "high", "critical"]
+
+
+class ReleasePolicyUpsert(BaseModel):
+    name: str = Field(
+        default="Default release policy",
+        min_length=1,
+        max_length=200,
+    )
+
+    warn_current_wer: float = 0.15
+    fail_current_wer: float = 0.20
+
+    warn_current_cer: float = 0.08
+    fail_current_cer: float = 0.12
+
+    warn_wer_delta: float = 0.01
+    fail_wer_delta: float = 0.03
+
+    warn_cer_delta: float = 0.005
+    fail_cer_delta: float = 0.02
+
+    @model_validator(mode="after")
+    def validate_thresholds(self):
+        ReleasePolicyThresholds(
+            warn_current_wer=self.warn_current_wer,
+            fail_current_wer=self.fail_current_wer,
+            warn_current_cer=self.warn_current_cer,
+            fail_current_cer=self.fail_current_cer,
+            warn_wer_delta=self.warn_wer_delta,
+            fail_wer_delta=self.fail_wer_delta,
+            warn_cer_delta=self.warn_cer_delta,
+            fail_cer_delta=self.fail_cer_delta,
+        )
+        return self
+
+
+class ReleasePolicyRead(ReleasePolicyUpsert):
+    id: int
+    project_id: int
+    version: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ReleaseCheckRead(BaseModel):
+    metric: str
+    label: str
+    observed_value: float
+    warn_threshold: float
+    fail_threshold: float
+    status: ReleaseStatus
+    message: str
+
+
+class ReleaseReportRead(BaseModel):
+    id: int
+    project_id: int
+    comparison_id: int
+    policy_id: Optional[int]
+
+    status: ReleaseStatus
+    severity: ReleaseSeverity
+
+    headline: str
+    summary: str
+    recommendation: str
+
+    policy_snapshot: dict[str, Any]
+    checks: list[ReleaseCheckRead]
+
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -1,9 +1,13 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Project(Base):
@@ -12,7 +16,7 @@ class Project(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     datasets = relationship(
         "Dataset",
@@ -54,7 +58,7 @@ class Dataset(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     project = relationship("Project", back_populates="datasets")
 
@@ -76,7 +80,7 @@ class TestCase(Base):
     reference_file_path = Column(String(500), nullable=True)
     reference_transcript = Column(Text, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     dataset = relationship("Dataset", back_populates="test_cases")
 
@@ -108,7 +112,7 @@ class EvaluationRun(Base):
 
     latency_seconds = Column(Float, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     project = relationship("Project", back_populates="runs")
 
@@ -134,7 +138,7 @@ class EvaluationResult(Base):
     quality_label = Column(String(50), nullable=True)
     error_summary = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     run = relationship("EvaluationRun", back_populates="evaluation_results")
     test_case = relationship("TestCase", back_populates="evaluation_results")
@@ -159,7 +163,7 @@ class RunComparison(Base):
     comparison_status = Column(String(50), nullable=False)
     summary = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     release_report = relationship(
         "ReleaseReport",
@@ -191,7 +195,7 @@ class DebugCase(Base):
     engineer_notes = Column(Text, nullable=True)
     ai_suggestion = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     project = relationship("Project", back_populates="debug_cases")
 
@@ -218,11 +222,11 @@ class ReleasePolicy(Base):
     warn_cer_delta = Column(Float, nullable=False, default=0.005)
     fail_cer_delta = Column(Float, nullable=False, default=0.02)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     project = relationship("Project", back_populates="release_policies")
@@ -259,11 +263,11 @@ class ReleaseReport(Base):
     policy_snapshot = Column(JSON, nullable=False)
     checks = Column(JSON, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utc_now,
+        onupdate=utc_now,
     )
 
     project = relationship("Project", back_populates="release_reports")

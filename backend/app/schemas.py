@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.release_safety import ReleasePolicyThresholds
 
@@ -17,8 +17,7 @@ class ProjectRead(BaseModel):
     description: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DatasetCreate(BaseModel):
@@ -33,8 +32,7 @@ class DatasetRead(BaseModel):
     description: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TestCaseRead(BaseModel):
@@ -46,8 +44,7 @@ class TestCaseRead(BaseModel):
     reference_transcript: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EvaluationRunCreate(BaseModel):
@@ -74,8 +71,7 @@ class EvaluationRunRead(BaseModel):
     latency_seconds: Optional[float]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EvaluationResultRead(BaseModel):
@@ -93,8 +89,7 @@ class EvaluationResultRead(BaseModel):
 
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RunComparisonCreate(BaseModel):
@@ -121,8 +116,7 @@ class RunComparisonRead(BaseModel):
 
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectWorkflowSummaryRead(BaseModel):
@@ -166,8 +160,7 @@ class DebugCaseRead(BaseModel):
     ai_suggestion: Optional[str]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DebugCaseDetailRead(BaseModel):
@@ -253,8 +246,7 @@ class ReleasePolicyRead(ReleasePolicyUpsert):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ReleaseCheckRead(BaseModel):
@@ -286,5 +278,4 @@ class ReleaseReportRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

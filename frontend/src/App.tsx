@@ -3,6 +3,7 @@ import "./App.css";
 import {
   compareRuns,
   createDebugCaseFromComparison,
+  createReleaseReport,
   createDatasetTestCase,
   createProjectDataset,
   createProjectRun,
@@ -17,6 +18,7 @@ import {
   getProjectRuns,
   getProjectWorkflowSummary,
   getProjects,
+  getReleaseReport,
   getResultTranscriptDiff,
   transcribeAndEvaluateTestCaseForRun,
   type Dataset,
@@ -26,6 +28,7 @@ import {
   type EvaluationRun,
   type Project,
   type ProjectWorkflowSummary,
+  type ReleaseReport,
   type RunComparison,
   type StructuredTranscriptDiff,
   type TestCase,
@@ -88,6 +91,40 @@ function cleanLabel(value: string | null | undefined) {
   if (!value) return "Not available";
 
   return value.replaceAll("_", " ");
+}
+
+function getReleaseStatusTone(
+  status: ReleaseReport["status"] | undefined,
+): MetricCard["status"] {
+  if (status === "pass") return "good";
+  if (status === "warn") return "warning";
+  if (status === "fail") return "danger";
+  return "neutral";
+}
+
+function getPolicySnapshotLabel(
+  snapshot: ReleaseReport["policy_snapshot"],
+) {
+  const policyName =
+    typeof snapshot.name === "string"
+      ? snapshot.name
+      : "Release policy";
+
+  const policyVersion =
+    typeof snapshot.version === "number" ||
+    typeof snapshot.version === "string"
+      ? `v${snapshot.version}`
+      : null;
+
+  return policyVersion
+    ? `${policyName} · ${policyVersion}`
+    : policyName;
+}
+
+function formatReleaseCheckValue(metric: string, value: number) {
+  return metric.includes("delta")
+    ? formatMetric(value)
+    : formatScore(value);
 }
 
 function getStatusLabel(status?: MetricCard["status"]) {
@@ -291,6 +328,11 @@ function App() {
   const [currentRunId, setCurrentRunId] = useState<number | "">("");
   const [comparisonMessage, setComparisonMessage] = useState<string | null>(null);
   const [isComparingRuns, setIsComparingRuns] = useState(false);
+  const [releaseReport, setReleaseReport] = useState<ReleaseReport | null>(null);
+  const [releaseReportMessage, setReleaseReportMessage] = useState<string | null>(
+    null,
+  );
+  const [isReleaseReportLoading, setIsReleaseReportLoading] = useState(false);
   const [debugCaseMessage, setDebugCaseMessage] = useState<string | null>(null);
   const [isCreatingDebugCase, setIsCreatingDebugCase] = useState(false);
   const [selectedDebugCaseId, setSelectedDebugCaseId] = useState<number | null>(
@@ -306,6 +348,9 @@ function App() {
   const [transcriptDiffError, setTranscriptDiffError] = useState<string | null>(
     null,
   );
+
+  const latestWorkspaceComparisonId =
+    workspaceData?.comparisons[0]?.id ?? null;
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -409,6 +454,53 @@ function App() {
       loadWorkspace(selectedProjectId);
     }
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadReleaseReport(comparisonId: number) {
+      try {
+        setIsReleaseReportLoading(true);
+        setReleaseReportMessage(null);
+
+        const report = await getReleaseReport(comparisonId);
+
+        if (!isCancelled) {
+          setReleaseReport(report);
+        }
+      } catch (error) {
+        if (isCancelled) {
+          return;
+        }
+
+        setReleaseReport(null);
+
+        const message =
+          error instanceof Error ? error.message : "";
+
+        if (!message.includes("404")) {
+          setReleaseReportMessage(
+            "Unable to load the existing release report.",
+          );
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsReleaseReportLoading(false);
+        }
+      }
+    }
+
+    if (latestWorkspaceComparisonId) {
+      loadReleaseReport(latestWorkspaceComparisonId);
+    } else {
+      setReleaseReport(null);
+      setReleaseReportMessage(null);
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [latestWorkspaceComparisonId]);
 
   useEffect(() => {
     async function loadDebugCaseDetails(debugCaseId: number) {
@@ -902,6 +994,8 @@ function App() {
         };
       });
 
+      setReleaseReport(null);
+      setReleaseReportMessage(null);
       setComparisonMessage("Runs compared.");
     } catch (error) {
       const message =
@@ -910,6 +1004,33 @@ function App() {
       setComparisonMessage(message);
     } finally {
       setIsComparingRuns(false);
+    }
+  }
+
+  async function handleGenerateReleaseReport(
+    comparisonId: number,
+  ) {
+    if (isReleaseReportLoading) {
+      return;
+    }
+
+    try {
+      setIsReleaseReportLoading(true);
+      setReleaseReportMessage(null);
+
+      const report = await createReleaseReport(comparisonId);
+
+      setReleaseReport(report);
+      setReleaseReportMessage("Release report ready.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to generate release report.";
+
+      setReleaseReportMessage(message);
+    } finally {
+      setIsReleaseReportLoading(false);
     }
   }
 
@@ -1629,6 +1750,10 @@ function App() {
 
   function renderWorkspace() {
     const latestComparison = workspaceData?.comparisons[0];
+    const activeReleaseReport =
+      releaseReport?.comparison_id === latestComparison?.id
+        ? releaseReport
+        : null;
     const openCases =
       workspaceData?.debugCases.filter((debugCase) => debugCase.status !== "closed") ??
       [];
@@ -2210,6 +2335,131 @@ function App() {
                           "No comparison summary is available yet."}
                       </p>
                     </div>
+
+                    <div className="form-actions comparison-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={isReleaseReportLoading}
+                        onClick={() =>
+                          handleGenerateReleaseReport(latestComparison.id)
+                        }
+                      >
+                        {isReleaseReportLoading
+                          ? "Generating report..."
+                          : activeReleaseReport
+                            ? "Refresh release report"
+                            : "Generate release report"}
+                      </button>
+
+                      {releaseReportMessage && (
+                        <span aria-live="polite">
+                          {releaseReportMessage}
+                        </span>
+                      )}
+                    </div>
+
+                    {activeReleaseReport && (
+                      <section
+                        className={`release-report ${activeReleaseReport.status}`}
+                        aria-label="Release safety summary"
+                      >
+                        <div className="release-report-header">
+                          <div>
+                            <p className="eyebrow">Release safety</p>
+                            <h4>{activeReleaseReport.headline}</h4>
+                          </div>
+
+                          <div className="release-report-badges">
+                            <span
+                              className={`status-pill ${getReleaseStatusTone(
+                                activeReleaseReport.status,
+                              )}`}
+                            >
+                              {activeReleaseReport.status}
+                            </span>
+                            <span
+                              className={`release-severity ${activeReleaseReport.severity}`}
+                            >
+                              Severity {activeReleaseReport.severity}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="release-report-summary">
+                          {activeReleaseReport.summary}
+                        </p>
+
+                        <div className="release-report-meta">
+                          <span>
+                            {getPolicySnapshotLabel(
+                              activeReleaseReport.policy_snapshot,
+                            )}
+                          </span>
+                          <span>
+                            Generated{" "}
+                            {formatDate(activeReleaseReport.updated_at)}
+                          </span>
+                        </div>
+
+                        <div className="release-check-list">
+                          {activeReleaseReport.checks.map((check) => (
+                            <article
+                              className={`release-check ${check.status}`}
+                              key={check.metric}
+                            >
+                              <div className="release-check-header">
+                                <strong>{check.label}</strong>
+                                <span
+                                  className={`status-pill ${getReleaseStatusTone(
+                                    check.status,
+                                  )}`}
+                                >
+                                  {check.status}
+                                </span>
+                              </div>
+
+                              <dl className="release-check-metrics">
+                                <div>
+                                  <dt>Observed</dt>
+                                  <dd>
+                                    {formatReleaseCheckValue(
+                                      check.metric,
+                                      check.observed_value,
+                                    )}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>Warn at</dt>
+                                  <dd>
+                                    {formatReleaseCheckValue(
+                                      check.metric,
+                                      check.warn_threshold,
+                                    )}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt>Fail at</dt>
+                                  <dd>
+                                    {formatReleaseCheckValue(
+                                      check.metric,
+                                      check.fail_threshold,
+                                    )}
+                                  </dd>
+                                </div>
+                              </dl>
+
+                              <p>{check.message}</p>
+                            </article>
+                          ))}
+                        </div>
+
+                        <div className="release-recommendation">
+                          <strong>Recommended action</strong>
+                          <p>{activeReleaseReport.recommendation}</p>
+                        </div>
+                      </section>
+                    )}
 
                     <div className="debug-case-guidance">
                       {latestComparison.comparison_status === "regression"

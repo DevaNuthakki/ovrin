@@ -70,6 +70,41 @@ export type RunComparison = {
   created_at: string;
 };
 
+export type ReleaseStatus = "pass" | "warn" | "fail";
+
+export type ReleaseSeverity =
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+
+export type ReleaseCheck = {
+  metric: string;
+  label: string;
+  observed_value: number;
+  warn_threshold: number;
+  fail_threshold: number;
+  status: ReleaseStatus;
+  message: string;
+};
+
+export type ReleaseReport = {
+  id: number;
+  project_id: number;
+  comparison_id: number;
+  policy_id: number | null;
+  status: ReleaseStatus;
+  severity: ReleaseSeverity;
+  headline: string;
+  summary: string;
+  recommendation: string;
+  policy_snapshot: Record<string, unknown>;
+  checks: ReleaseCheck[];
+  created_at: string;
+  updated_at: string;
+};
+
 
 export type ProjectWorkflowSummary = {
   project_id: number;
@@ -250,6 +285,21 @@ export async function compareRuns(runIds: {
     },
     body: JSON.stringify(runIds),
   });
+}
+
+export async function createReleaseReport(comparisonId: number) {
+  return fetchJson<ReleaseReport>(
+    `/comparisons/${comparisonId}/release-report`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export async function getReleaseReport(comparisonId: number) {
+  return fetchJson<ReleaseReport>(
+    `/comparisons/${comparisonId}/release-report`,
+  );
 }
 
 export async function createDebugCaseFromComparison(comparisonId: number) {
